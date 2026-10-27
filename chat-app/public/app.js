@@ -388,6 +388,25 @@ els.stickerInput.addEventListener('change', async () => {
   finally { els.stickerInput.value = ''; }
 });
 els.input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); els.composer.requestSubmit(); } });
+els.input.addEventListener('paste', async (event) => {
+  const clipboardItems = [...(event.clipboardData?.items || [])];
+  const mediaItem = clipboardItems.find((item) => item.kind === 'file' && /^image\/(gif|png|jpeg|webp)$/.test(item.type));
+  const file = mediaItem?.getAsFile() || [...(event.clipboardData?.files || [])].find((item) => /^image\/(gif|png|jpeg|webp)$/.test(item.type));
+  if (!file) return; // Texto, incluindo emojis do Win + ., continua sendo inserido normalmente.
+  event.preventDefault();
+  if (!activeChat) { showToast('Abra uma conversa antes de colar uma mídia.'); return; }
+  if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou imagem deve ter até 7 MB.'); return; }
+  try {
+    showToast(file.type === 'image/gif' ? 'Enviando GIF…' : 'Enviando imagem…');
+    const dataUrl = await readFileAsDataUrl(file);
+    const [, data] = dataUrl.split(',');
+    const payload = { data, mimetype: file.type, filename: file.name || (file.type === 'image/gif' ? 'animacao.gif' : 'imagem') };
+    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
+    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    appendMessage(sent);
+    clearReplyTarget();
+  } catch (error) { showToast(error.message); }
+});
 els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = `${Math.min(els.input.scrollHeight, 100)}px`; });
 els.composer.addEventListener('submit', async (event) => {
   event.preventDefault();
