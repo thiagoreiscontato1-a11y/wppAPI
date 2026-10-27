@@ -14,7 +14,7 @@ npm start
 
 Abra a porta **3000** na aba *Ports* do Codespaces. No primeiro acesso, leia o QR code exibido na página pelo WhatsApp em **Aparelhos conectados → Conectar aparelho**. A sessão fica em `chat-app/.wwebjs_auth` e é ignorada pelo Git.
 
-O comando `npm run setup` instala as dependências de produção da biblioteca local, instala as dependências da interface e baixa o Chrome usado pelo Puppeteer. Na configuração do Codespaces, as bibliotecas do sistema necessárias ao Chrome são instaladas no primeiro provisionamento do contêiner.
+O comando `npm run setup` instala as dependências de produção da biblioteca local, instala o FFmpeg (usado para converter GIFs em vídeo animado), instala as dependências da interface e baixa o Chrome usado pelo Puppeteer. Na configuração do Codespaces, as bibliotecas do sistema necessárias ao Chrome são instaladas no primeiro provisionamento do contêiner.
 
 ## Observações
 
