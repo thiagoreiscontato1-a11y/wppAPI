@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 const port = Number(process.env.PORT || 3000);
 const authPath = path.join(__dirname, '.wwebjs_auth');
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let qrDataUrl = null;
@@ -213,6 +213,26 @@ app.post('/api/chats/:id/stickers', async (req, res) => {
     res.status(201).json(serializeMessage(sent));
   } catch (error) {
     console.error('Falha ao enviar figurinha:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chats/:id/media', async (req, res) => {
+  if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
+  const { data, mimetype, filename, quotedMessageId } = req.body || {};
+  const type = String(mimetype || '').toLowerCase();
+  if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Não encontrei uma mídia na área de transferência.' });
+  if (!['image/gif', 'image/png', 'image/jpeg', 'image/webp', 'video/mp4'].includes(type)) return res.status(400).json({ error: 'Formato não suportado. Cole um GIF ou uma imagem.' });
+  if (Buffer.byteLength(data, 'base64') > 7 * 1024 * 1024) return res.status(413).json({ error: 'A mídia deve ter até 7 MB.' });
+  try {
+    const media = new MessageMedia(type, data, filename || (type === 'image/gif' ? 'animacao.gif' : 'imagem'));
+    const options = {};
+    if (quotedMessageId) options.quotedMessageId = String(quotedMessageId);
+    if (type === 'image/gif') options.sendMediaAsGif = true;
+    const sent = await client.sendMessage(req.params.id, media, options);
+    res.status(201).json(serializeMessage(sent));
+  } catch (error) {
+    console.error('Falha ao enviar mídia colada:', error);
     res.status(500).json({ error: error.message });
   }
 });
