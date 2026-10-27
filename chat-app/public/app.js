@@ -7,6 +7,7 @@ const els = {
   name: $('threadName'), meta: $('threadMeta'), avatar: $('threadAvatar'), input: $('messageInput'), composer: $('composer'),
   replyBar: $('replyBar'), replyAuthor: $('replyAuthor'), replyText: $('replyText'), stickerInput: $('stickerInput'),
 };
+els.mediaInput = $('mediaInput');
 let statusState = 'starting';
 let chats = [];
 let activeChat = null;
@@ -369,6 +370,35 @@ $('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar
 $('retryBtn').addEventListener('click', () => location.reload());
 $('cancelReplyBtn').addEventListener('click', clearReplyTarget);
 $('stickerBtn').addEventListener('click', () => els.stickerInput.click());
+$('mediaBtn').addEventListener('click', () => els.mediaInput.click());
+async function sendClipboardMedia(file) {
+  if (!activeChat) { showToast('Abra uma conversa antes de anexar uma mídia.'); return; }
+  if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou a imagem deve ter até 7 MB.'); return; }
+  if (!/^image\/(gif|png|jpeg|webp)$/.test(file.type) && file.type !== 'video/mp4') { showToast('Formato não suportado. Escolha um GIF, imagem ou vídeo MP4.'); return; }
+  try {
+    showToast(file.type === 'image/gif' ? 'Enviando GIF…' : 'Enviando mídia…');
+    const dataUrl = await readFileAsDataUrl(file);
+    const [, data] = dataUrl.split(',');
+    const payload = { data, mimetype: file.type, filename: file.name || (file.type === 'image/gif' ? 'animacao.gif' : 'imagem') };
+    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
+    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    appendMessage(sent); clearReplyTarget();
+  } catch (error) { showToast(error.message); }
+}
+els.mediaInput.addEventListener('change', async () => {
+  const file = els.mediaInput.files?.[0];
+  if (file) await sendClipboardMedia(file);
+  els.mediaInput.value = '';
+});
+els.composer.addEventListener('dragover', (event) => {
+  if ([...(event.dataTransfer?.items || [])].some((item) => item.kind === 'file')) event.preventDefault();
+});
+els.composer.addEventListener('drop', async (event) => {
+  const file = [...(event.dataTransfer?.files || [])].find((item) => /^image\/(gif|png|jpeg|webp)$/.test(item.type) || item.type === 'video/mp4');
+  if (!file) return;
+  event.preventDefault();
+  await sendClipboardMedia(file);
+});
 els.stickerInput.addEventListener('change', async () => {
   const file = els.stickerInput.files?.[0];
   if (!file || !activeChat) return;
