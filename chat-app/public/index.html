@@ -18,7 +18,7 @@
     </aside>
 
     <aside class="chat-sidebar">
-      <header class="sidebar-header"><div><p class="eyebrow">WPPAPI</p><h1>Chat</h1></div><button class="icon-button" id="refreshBtn" title="Atualizar conversas">↻</button></header>
+      <header class="sidebar-header"><div><p class="eyebrow">WPPAPI</p><h1>Chat</h1></div><div class="header-actions"><button class="icon-button theme-toggle" id="themeToggle" type="button" title="Ativar modo escuro" aria-label="Ativar modo escuro" aria-pressed="false">☾</button><button class="icon-button" id="refreshBtn" title="Atualizar conversas">↻</button></div></header>
       <label class="search-box"><span>⌕</span><input id="searchInput" placeholder="Pesquisar" autocomplete="off" /></label>
       <div class="section-heading"><span>Recentes</span><button class="tiny-button" title="Mais opções">···</button></div>
       <div id="chatList" class="chat-list"><div class="list-loading">Carregando conversas…</div></div>
@@ -42,6 +42,7 @@
   </div>
 
   <div id="connectOverlay" class="overlay hidden"><div class="connect-card"><div class="connect-logo">W</div><p class="eyebrow">WPPAPI CHAT</p><h2 id="connectTitle">Conectando ao WhatsApp</h2><p id="connectText">Iniciando uma sessão segura no Codespace…</p><div id="qrWrap" class="qr-wrap hidden"><img id="qrImage" alt="QR code para conectar o WhatsApp" /><p>Abra o WhatsApp no celular → <strong>Aparelhos conectados</strong> → <strong>Conectar aparelho</strong>.</p></div><div id="connectSpinner" class="spinner"></div><div id="connectError" class="connect-error hidden"></div><button id="retryBtn" class="retry-button hidden">Tentar novamente</button><small class="session-note">A sessão fica salva somente neste ambiente de teste.</small></div></div>
+  <div id="messageNotice" class="message-notice hidden" role="status" aria-live="polite"><span class="notice-dot"></span><div class="notice-copy"><strong id="noticeTitle">Nova mensagem</strong><span id="noticeBody"></span></div><button id="dismissNotice" type="button" aria-label="Fechar notificação">×</button></div>
   <div id="toast" class="toast"></div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>
