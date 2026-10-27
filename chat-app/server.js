@@ -41,6 +41,7 @@ async function startClient() {
     authStrategy: new LocalAuth({ clientId: 'wppapi-chat', dataPath: authPath }),
     puppeteer: {
       headless: true,
+      protocolTimeout: 300000,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     },
   });
@@ -85,28 +86,28 @@ async function startClient() {
 }
 
 app.get('/api/status', (_req, res) => res.json({ state, qrDataUrl, error: lastError }));
+app.get('/favicon.ico', (_req, res) => res.sendStatus(204));
 
 app.get('/api/chats', async (_req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   try {
     const chats = await client.getChats();
-    const result = await Promise.all(chats.map(async (chat) => {
-      let contact = null;
-      try { contact = await chat.getContact(); } catch {}
-      return {
+    const result = chats.map((chat) => ({
         id: chat.id._serialized,
-        name: chat.name || contact?.pushname || contact?.name || chat.id.user,
+        name: chat.name || chat.id.user,
         isGroup: Boolean(chat.isGroup),
         unreadCount: chat.unreadCount || 0,
         timestamp: chat.timestamp || 0,
         lastMessage: chat.lastMessage?.body || '',
         number: chat.id.user,
         profilePic: null,
-      };
-    }));
+      }));
     result.sort((a, b) => b.timestamp - a.timestamp);
     res.json(result);
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('Falha ao carregar conversas do WhatsApp:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/chats/:id/messages', async (req, res) => {
