@@ -156,6 +156,21 @@ function messagePreview(message) {
   if (!message.hasMedia) return 'Mensagem';
   return ({ sticker: 'Figurinha', image: 'Imagem', video: 'Vídeo', audio: 'Áudio', ptt: 'Mensagem de voz', document: 'Documento' })[message.type] || 'Mídia anexada';
 }
+function messageTypeLabel(type = '') {
+  return ({
+    call_log: 'Chamada de voz',
+    call: 'Chamada',
+    missed_call: 'Chamada perdida',
+    video_call: 'Chamada de vídeo',
+    e2e_notification: 'Notificação do WhatsApp',
+    notification_template: 'Aviso do WhatsApp',
+    revoked: 'Mensagem apagada',
+    protocol: 'Atualização da conversa',
+    ciphertext: 'Mensagem indisponível',
+    gp2: 'Atualização do grupo',
+    unknown: 'Mensagem não disponível',
+  })[type] || (type ? type.replaceAll('_', ' ') : 'Mensagem');
+}
 function setReplyTarget(message) {
   replyTarget = message;
   els.replyAuthor.textContent = message.fromMe ? 'Você' : (message.author || activeChat?.name || 'Mensagem');
@@ -278,7 +293,7 @@ function appendMessage(message) {
   else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
   else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download>📎 Abrir ou baixar documento</a>`;
   else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">📎 Abrir mídia (${escapeHtml(message.type || 'arquivo')})</a>`;
-  const content = `${attachment}${message.body ? `${attachment ? '<br>' : ''}${escapeHtml(message.body)}` : (!attachment ? `<span class="message-media">${escapeHtml(message.type || 'Mensagem')}</span>` : '')}`;
+  const content = `${attachment}${message.body ? `${attachment ? '<br>' : ''}${escapeHtml(message.body)}` : (!attachment ? `<span class="message-media">${escapeHtml(messageTypeLabel(message.type))}</span>` : '')}`;
   const quote = message.replyPreview || message.quotedMessage;
   const quoteText = quote ? (quote.body || (quote.hasMedia ? messagePreview(quote) : 'Mensagem')) : '';
   const quoteHtml = quote ? `<div class="quoted-message"><strong>${escapeHtml(quote.fromMe ? 'Você' : (quote.author || 'Mensagem citada'))}</strong><span>${escapeHtml(quoteText)}</span></div>` : '';
