@@ -35,7 +35,8 @@
         <header class="thread-header"><div class="person-avatar" id="threadAvatar">?</div><div class="person-title"><h2 id="threadName">Conversa</h2><p id="threadMeta">WhatsApp</p></div><div class="thread-actions"><button class="icon-button" title="Pesquisar nesta conversa">⌕</button><button class="icon-button" title="Mais opções">···</button></div></header>
         <div class="thread-banner"><span class="lock-icon">♧</span> As mensagens desta conversa são sincronizadas com o WhatsApp conectado.</div>
         <div id="messages" class="messages"><div class="messages-loading">Carregando mensagens…</div></div>
-        <form id="composer" class="composer"><button class="compose-tool" type="button" title="Em breve">＋</button><textarea id="messageInput" rows="1" placeholder="Digite uma mensagem" autocomplete="off"></textarea><button class="send-button" type="submit" title="Enviar">➤</button><div class="composer-hint">Enter para enviar · Shift + Enter para pular linha</div></form>
+        <div id="replyBar" class="reply-bar hidden"><div class="reply-accent"></div><div class="reply-copy"><strong id="replyAuthor"></strong><span id="replyText"></span></div><button id="cancelReplyBtn" class="icon-button" type="button" title="Cancelar resposta">×</button></div>
+        <form id="composer" class="composer"><button id="stickerBtn" class="compose-tool sticker-tool" type="button" title="Enviar uma imagem como figurinha">▧</button><input id="stickerInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /><textarea id="messageInput" rows="1" placeholder="Digite uma mensagem" autocomplete="off"></textarea><button class="send-button" type="submit" title="Enviar">➤</button><div class="composer-hint">Enter para enviar · Shift + Enter para pular linha · ↩ na mensagem para responder</div></form>
       </section>
     </main>
   </div>
