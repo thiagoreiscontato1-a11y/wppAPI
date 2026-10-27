@@ -17,6 +17,8 @@ let qrDataUrl = null;
 let state = 'starting';
 let lastError = null;
 let client;
+const profilePictureCache = new Map();
+const profilePictureRequests = new Map();
 
 function publishStatus() {
   io.emit('status', { state, qrDataUrl, error: lastError });
@@ -87,6 +89,49 @@ async function startClient() {
 
 app.get('/api/status', (_req, res) => res.json({ state, qrDataUrl, error: lastError }));
 app.get('/favicon.ico', (_req, res) => res.sendStatus(204));
+
+app.get('/api/chats/:id/profile-picture', async (req, res) => {
+  if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
+  const chatId = req.params.id;
+  try {
+    if (!profilePictureCache.has(chatId)) {
+      let request = profilePictureRequests.get(chatId);
+      if (!request) {
+        request = client.getProfilePicUrl(chatId)
+          .catch((error) => { throw error; })
+          .finally(() => profilePictureRequests.delete(chatId));
+        profilePictureRequests.set(chatId, request);
+      }
+      profilePictureCache.set(chatId, await request || null);
+    }
+    res.json({ url: profilePictureCache.get(chatId) });
+  } catch (error) {
+    console.error('Falha ao carregar foto de perfil:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/media/:messageId', async (req, res) => {
+  if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
+  try {
+    const message = await client.getMessageById(req.params.messageId);
+    if (!message?.hasMedia) return res.status(404).json({ error: 'Mídia não encontrada.' });
+    const media = await message.downloadMedia();
+    if (!media?.data) return res.status(404).json({ error: 'Não foi possível baixar esta mídia.' });
+    const buffer = Buffer.from(media.data, 'base64');
+    res.setHeader('Content-Type', media.mimetype || 'application/octet-stream');
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    if (media.filename) {
+      const safeName = media.filename.replace(/[\r\n"\\]/g, '_');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    }
+    res.send(buffer);
+  } catch (error) {
+    console.error('Falha ao baixar mídia da mensagem:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.get('/api/chats', async (_req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
