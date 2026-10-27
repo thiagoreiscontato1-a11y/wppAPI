@@ -16,12 +16,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 let qrDataUrl = null;
 let state = 'starting';
 let lastError = null;
+let loadingPercent = null;
 let client;
 const profilePictureCache = new Map();
 const profilePictureRequests = new Map();
 
 function publishStatus() {
-  io.emit('status', { state, qrDataUrl, error: lastError });
+  io.emit('status', { state, qrDataUrl, error: lastError, loadingPercent });
 }
 
 function serializeMessage(msg) {
@@ -48,6 +49,7 @@ function serializeMessage(msg) {
 async function startClient() {
   state = 'starting';
   lastError = null;
+  loadingPercent = null;
   client = new Client({
     authStrategy: new LocalAuth({ clientId: 'wppapi-chat', dataPath: authPath }),
     puppeteer: {
@@ -67,8 +69,14 @@ async function startClient() {
     state = 'authenticated';
     publishStatus();
   });
+  client.on('loading_screen', (percent, label) => {
+    loadingPercent = Number.isFinite(Number(percent)) ? Number(percent) : null;
+    console.log(`Sincronização do WhatsApp: ${loadingPercent ?? '?'}%${label ? ` (${label})` : ''}`);
+    publishStatus();
+  });
   client.on('ready', () => {
     qrDataUrl = null;
+    loadingPercent = null;
     state = 'ready';
     publishStatus();
   });
@@ -90,6 +98,7 @@ async function startClient() {
   try {
     await client.initialize();
   } catch (error) {
+    console.error('Falha ao inicializar o WhatsApp:', error);
     state = 'error';
     lastError = error.message;
     publishStatus();
@@ -219,7 +228,7 @@ app.post('/api/logout', async (_req, res) => {
 });
 
 io.on('connection', (socket) => {
-  socket.emit('status', { state, qrDataUrl, error: lastError });
+  socket.emit('status', { state, qrDataUrl, error: lastError, loadingPercent });
 });
 
 server.listen(port, '0.0.0.0', () => {
