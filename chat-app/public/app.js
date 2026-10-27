@@ -22,8 +22,14 @@ let noticeTimer;
 let notificationAudioContext = null;
 let lastNotificationSoundAt = 0;
 let notificationSoundEnabled = true;
+let inAppNotificationsEnabled = true;
+let desktopNotificationsEnabled = false;
+let mutedChats = new Set();
 
 try { notificationSoundEnabled = localStorage.getItem('wppapi-chat-sound') !== 'off'; } catch {}
+try { inAppNotificationsEnabled = localStorage.getItem('wppapi-chat-inapp') !== 'off'; } catch {}
+try { desktopNotificationsEnabled = localStorage.getItem('wppapi-chat-desktop') === 'on'; } catch {}
+try { mutedChats = new Set(JSON.parse(localStorage.getItem('wppapi-chat-muted') || '[]')); } catch {}
 
 function setTheme(theme, persist = true) {
   const dark = theme === 'dark';
@@ -84,6 +90,7 @@ document.addEventListener('pointerdown', unlockNotificationAudio, { once: true }
 document.addEventListener('keydown', unlockNotificationAudio, { once: true });
 
 function showMessageNotification(chat, message) {
+  if (!inAppNotificationsEnabled) return;
   const notice = $('messageNotice');
   $('noticeTitle').textContent = chat?.name || 'Nova mensagem';
   $('noticeBody').textContent = messagePreview(message);
@@ -91,6 +98,21 @@ function showMessageNotification(chat, message) {
   notice.classList.remove('hidden');
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => notice.classList.add('hidden'), 4800);
+}
+function updateNotificationSettings() {
+  $('inAppNotificationsToggle').checked = inAppNotificationsEnabled;
+  $('desktopNotificationsToggle').checked = desktopNotificationsEnabled;
+  $('desktopNotificationsToggle').disabled = !('Notification' in window);
+  $('desktopNotificationHelp').textContent = !('Notification' in window) ? 'Este navegador não oferece notificações do Windows.' : Notification.permission === 'denied' ? 'Notificações bloqueadas nas permissões do navegador.' : 'O navegador pode pedir autorização para mostrar notificações.';
+}
+function updateMuteButton() {
+  if (!activeChat) return;
+  const muted = mutedChats.has(activeChat.id);
+  const button = $('muteChatBtn');
+  button.textContent = muted ? '♬' : '♩';
+  button.title = muted ? 'Ativar notificações desta conversa' : 'Silenciar conversa';
+  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-pressed', String(muted));
 }
 
 function initials(text = '?') { return text.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'; }
@@ -183,9 +205,13 @@ socket.on('message', ({ chatId, message }) => {
     chat.lastMessage = messagePreview(message);
     chat.timestamp = message.timestamp;
     renderChats();
-    if (!message.fromMe && !isVisibleConversation) {
+    if (!message.fromMe && !isVisibleConversation && !mutedChats.has(chatId)) {
       showMessageNotification(chat, message);
       playNotificationSound();
+      if (desktopNotificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(chat.name || 'Nova mensagem', { body: messagePreview(message), tag: `wppapi-${chatId}` });
+        notification.onclick = () => { window.focus(); openChat(chatId); notification.close(); };
+      }
     }
   }
 });
@@ -267,6 +293,7 @@ async function openChat(id) {
   activeChat = chat; renderedIds = new Set();
   clearReplyTarget();
   els.name.textContent = chat.name;
+  updateMuteButton();
   els.meta.textContent = chat.isGroup ? `Grupo · ${chat.number}` : chat.number;
   els.avatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>`;
   els.avatar.dataset.profileId = chat.id;
@@ -298,6 +325,30 @@ $('soundToggle').addEventListener('click', () => {
   updateSoundToggle();
   try { localStorage.setItem('wppapi-chat-sound', notificationSoundEnabled ? 'on' : 'off'); } catch {}
   if (notificationSoundEnabled) unlockNotificationAudio();
+});
+$('notificationSettingsBtn').addEventListener('click', () => $('notificationSettings').classList.toggle('hidden'));
+$('inAppNotificationsToggle').addEventListener('change', (event) => {
+  inAppNotificationsEnabled = event.currentTarget.checked;
+  try { localStorage.setItem('wppapi-chat-inapp', inAppNotificationsEnabled ? 'on' : 'off'); } catch {}
+  if (!inAppNotificationsEnabled) $('messageNotice').classList.add('hidden');
+});
+$('desktopNotificationsToggle').addEventListener('change', async (event) => {
+  if (!event.currentTarget.checked) desktopNotificationsEnabled = false;
+  else if ('Notification' in window) {
+    const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+    desktopNotificationsEnabled = permission === 'granted';
+    if (!desktopNotificationsEnabled) showToast('Permita notificações nas configurações do navegador.');
+  }
+  event.currentTarget.checked = desktopNotificationsEnabled;
+  try { localStorage.setItem('wppapi-chat-desktop', desktopNotificationsEnabled ? 'on' : 'off'); } catch {}
+  updateNotificationSettings();
+});
+$('muteChatBtn').addEventListener('click', () => {
+  if (!activeChat) return;
+  if (mutedChats.has(activeChat.id)) mutedChats.delete(activeChat.id); else mutedChats.add(activeChat.id);
+  try { localStorage.setItem('wppapi-chat-muted', JSON.stringify([...mutedChats])); } catch {}
+  updateMuteButton(); renderChats();
+  showToast(mutedChats.has(activeChat.id) ? 'Conversa silenciada.' : 'Notificações da conversa ativadas.');
 });
 $('messageNotice').addEventListener('click', (event) => {
   if (event.target.id === 'dismissNotice') return;
@@ -356,3 +407,4 @@ els.composer.addEventListener('submit', async (event) => {
 });
 
 api('/api/status').then(displayStatus).catch(() => {});
+updateNotificationSettings();
