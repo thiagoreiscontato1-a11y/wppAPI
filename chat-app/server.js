@@ -32,6 +32,7 @@ function serializeMessage(msg) {
     id: msg.id?._serialized,
     body: msg.body || '',
     type: msg.type || 'chat',
+    isGif: Boolean(msg._data?.isGif || msg.isGif || msg.type === 'gif'),
     fromMe: Boolean(msg.fromMe),
     timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
     author: msg._data?.notifyName || msg._data?.pushname || '',
@@ -228,7 +229,7 @@ app.post('/api/chats/:id/media', async (req, res) => {
     const media = new MessageMedia(type, data, filename || (type === 'image/gif' ? 'animacao.gif' : 'imagem'));
     const options = {};
     if (quotedMessageId) options.quotedMessageId = String(quotedMessageId);
-    if (type === 'image/gif') options.sendMediaAsGif = true;
+    if (type === 'image/gif') options.sendVideoAsGif = true;
     const sent = await client.sendMessage(req.params.id, media, options);
     res.status(201).json(serializeMessage(sent));
   } catch (error) {
