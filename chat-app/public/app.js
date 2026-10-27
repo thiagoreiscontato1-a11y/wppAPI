@@ -19,6 +19,11 @@ let profilePictureActive = 0;
 let profileObserver;
 let toastTimer;
 let noticeTimer;
+let notificationAudioContext = null;
+let lastNotificationSoundAt = 0;
+let notificationSoundEnabled = true;
+
+try { notificationSoundEnabled = localStorage.getItem('wppapi-chat-sound') !== 'off'; } catch {}
 
 function setTheme(theme, persist = true) {
   const dark = theme === 'dark';
@@ -36,7 +41,48 @@ function setTheme(theme, persist = true) {
 
 try { setTheme(localStorage.getItem('wppapi-chat-theme') || 'light', false); }
 catch { setTheme('light', false); }
-  
+
+function updateSoundToggle() {
+  const button = $('soundToggle');
+  button.textContent = notificationSoundEnabled ? '♪' : '♩';
+  button.title = notificationSoundEnabled ? 'Desativar som das notificações' : 'Ativar som das notificações';
+  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-pressed', String(notificationSoundEnabled));
+}
+function unlockNotificationAudio() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return;
+  try {
+    notificationAudioContext ||= new AudioContextClass();
+    if (notificationAudioContext.state === 'suspended') notificationAudioContext.resume().catch(() => {});
+  } catch {}
+}
+function playNotificationSound() {
+  if (!notificationSoundEnabled || !notificationAudioContext || notificationAudioContext.state !== 'running') return;
+  const nowMs = Date.now();
+  if (nowMs - lastNotificationSoundAt < 2200) return;
+  lastNotificationSoundAt = nowMs;
+  const context = notificationAudioContext;
+  const start = context.currentTime;
+  [660, 880].forEach((frequency, index) => {
+    const at = start + index * 0.09;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, at);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(0.035, at + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.13);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(at);
+    oscillator.stop(at + 0.14);
+  });
+}
+updateSoundToggle();
+document.addEventListener('pointerdown', unlockNotificationAudio, { once: true });
+document.addEventListener('keydown', unlockNotificationAudio, { once: true });
+
 function showMessageNotification(chat, message) {
   const notice = $('messageNotice');
   $('noticeTitle').textContent = chat?.name || 'Nova mensagem';
@@ -134,7 +180,10 @@ socket.on('message', ({ chatId, message }) => {
     chat.lastMessage = messagePreview(message);
     chat.timestamp = message.timestamp;
     renderChats();
-    if (!message.fromMe && !isVisibleConversation) showMessageNotification(chat, message);
+    if (!message.fromMe && !isVisibleConversation) {
+      showMessageNotification(chat, message);
+      playNotificationSound();
+    }
   }
 });
 socket.on('connect_error', () => showToast('Reconectando ao servidor…'));
@@ -241,6 +290,12 @@ async function openChat(id) {
 els.search.addEventListener('input', renderChats);
 $('refreshBtn').addEventListener('click', loadChats);
 $('themeToggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+$('soundToggle').addEventListener('click', () => {
+  notificationSoundEnabled = !notificationSoundEnabled;
+  updateSoundToggle();
+  try { localStorage.setItem('wppapi-chat-sound', notificationSoundEnabled ? 'on' : 'off'); } catch {}
+  if (notificationSoundEnabled) unlockNotificationAudio();
+});
 $('messageNotice').addEventListener('click', (event) => {
   if (event.target.id === 'dismissNotice') return;
   const chatId = event.currentTarget.dataset.chatId;
