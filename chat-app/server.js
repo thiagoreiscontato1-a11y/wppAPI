@@ -3,7 +3,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('../index.js');
 
 const app = express();
 const server = http.createServer(app);
