@@ -18,6 +18,34 @@ const profilePictureQueue = [];
 let profilePictureActive = 0;
 let profileObserver;
 let toastTimer;
+let noticeTimer;
+
+function setTheme(theme, persist = true) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const button = $('themeToggle');
+  button.textContent = dark ? '☼' : '☾';
+  button.title = dark ? 'Ativar modo claro' : 'Ativar modo escuro';
+  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-pressed', String(dark));
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#1b1c22' : '#464775';
+  if (persist) {
+    try { localStorage.setItem('wppapi-chat-theme', dark ? 'dark' : 'light'); } catch {}
+  }
+}
+
+try { setTheme(localStorage.getItem('wppapi-chat-theme') || 'light', false); }
+catch { setTheme('light', false); }
+  
+function showMessageNotification(chat, message) {
+  const notice = $('messageNotice');
+  $('noticeTitle').textContent = chat?.name || 'Nova mensagem';
+  $('noticeBody').textContent = messagePreview(message);
+  notice.dataset.chatId = chat?.id || '';
+  notice.classList.remove('hidden');
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => notice.classList.add('hidden'), 4800);
+}
 
 function initials(text = '?') { return text.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'; }
 function escapeHtml(text = '') { return String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
@@ -100,7 +128,14 @@ socket.on('status', displayStatus);
 socket.on('message', ({ chatId, message }) => {
   if (activeChat?.id === chatId) appendMessage(message);
   const chat = chats.find((item) => item.id === chatId);
-  if (chat) { chat.lastMessage = message.body || (message.hasMedia ? '📎 Mídia' : ''); chat.timestamp = message.timestamp; renderChats(); }
+  if (chat) {
+    const isVisibleConversation = activeChat?.id === chatId && !document.hidden;
+    if (!message.fromMe && !isVisibleConversation) chat.unreadCount = (chat.unreadCount || 0) + 1;
+    chat.lastMessage = messagePreview(message);
+    chat.timestamp = message.timestamp;
+    renderChats();
+    if (!message.fromMe && !isVisibleConversation) showMessageNotification(chat, message);
+  }
 });
 socket.on('connect_error', () => showToast('Reconectando ao servidor…'));
 
@@ -205,6 +240,22 @@ async function openChat(id) {
 }
 els.search.addEventListener('input', renderChats);
 $('refreshBtn').addEventListener('click', loadChats);
+$('themeToggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+$('messageNotice').addEventListener('click', (event) => {
+  if (event.target.id === 'dismissNotice') return;
+  const chatId = event.currentTarget.dataset.chatId;
+  event.currentTarget.classList.add('hidden');
+  if (chatId) openChat(chatId);
+});
+$('dismissNotice').addEventListener('click', (event) => { event.stopPropagation(); $('messageNotice').classList.add('hidden'); });
+$('messageNotice').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    const chatId = event.currentTarget.dataset.chatId;
+    event.currentTarget.classList.add('hidden');
+    if (chatId) openChat(chatId);
+  }
+});
+$('messageNotice').tabIndex = 0;
 $('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar esta sessão do WhatsApp?')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
 $('retryBtn').addEventListener('click', () => location.reload());
 $('cancelReplyBtn').addEventListener('click', clearReplyTarget);
