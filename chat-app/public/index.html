@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#464775" />
+  <title>WPPAPI | Chat</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <div class="brand-mark">W</div>
+      <button class="rail-item active" title="Chat"><span>▤</span><small>Chat</small></button>
+      <button class="rail-item" title="Atividade"><span>◉</span><small>Atividade</small></button>
+      <button class="rail-item" title="Contatos"><span>♙</span><small>Contatos</small></button>
+      <div class="rail-bottom"><button class="rail-item" id="logoutBtn" title="Desconectar"><span>⏻</span><small>Sair</small></button><div class="me-avatar">T</div></div>
+    </aside>
+
+    <aside class="chat-sidebar">
+      <header class="sidebar-header"><div><p class="eyebrow">WPPAPI</p><h1>Chat</h1></div><button class="icon-button" id="refreshBtn" title="Atualizar conversas">↻</button></header>
+      <label class="search-box"><span>⌕</span><input id="searchInput" placeholder="Pesquisar" autocomplete="off" /></label>
+      <div class="section-heading"><span>Recentes</span><button class="tiny-button" title="Mais opções">···</button></div>
+      <div id="chatList" class="chat-list"><div class="list-loading">Carregando conversas…</div></div>
+      <footer class="sidebar-footer"><span class="connection-dot" id="sidebarDot"></span><span id="sidebarStatus">Conectando ao WhatsApp</span></footer>
+    </aside>
+
+    <main class="conversation">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-illustration"><div class="bubble bubble-one">Olá! 👋</div><div class="bubble bubble-two">Tudo certo?</div><div class="chat-symbol">✉</div></div>
+        <h2>Suas conversas, em um só lugar</h2><p>Escolha uma conversa na lista para começar.</p>
+        <div class="prototype-note"><span>✦</span><div><strong>Prévia de teste</strong><small>As mensagens são enviadas pela sessão conectada do WhatsApp.</small></div></div>
+      </section>
+      <section id="thread" class="thread hidden">
+        <header class="thread-header"><div class="person-avatar" id="threadAvatar">?</div><div class="person-title"><h2 id="threadName">Conversa</h2><p id="threadMeta">WhatsApp</p></div><div class="thread-actions"><button class="icon-button" title="Pesquisar nesta conversa">⌕</button><button class="icon-button" title="Mais opções">···</button></div></header>
+        <div class="thread-banner"><span class="lock-icon">♧</span> As mensagens desta conversa são sincronizadas com o WhatsApp conectado.</div>
+        <div id="messages" class="messages"><div class="messages-loading">Carregando mensagens…</div></div>
+        <form id="composer" class="composer"><button class="compose-tool" type="button" title="Em breve">＋</button><textarea id="messageInput" rows="1" placeholder="Digite uma mensagem" autocomplete="off"></textarea><button class="send-button" type="submit" title="Enviar">➤</button><div class="composer-hint">Enter para enviar · Shift + Enter para pular linha</div></form>
+      </section>
+    </main>
+  </div>
+
+  <div id="connectOverlay" class="overlay hidden"><div class="connect-card"><div class="connect-logo">W</div><p class="eyebrow">WPPAPI CHAT</p><h2 id="connectTitle">Conectando ao WhatsApp</h2><p id="connectText">Iniciando uma sessão segura no Codespace…</p><div id="qrWrap" class="qr-wrap hidden"><img id="qrImage" alt="QR code para conectar o WhatsApp" /><p>Abra o WhatsApp no celular → <strong>Aparelhos conectados</strong> → <strong>Conectar aparelho</strong>.</p></div><div id="connectSpinner" class="spinner"></div><div id="connectError" class="connect-error hidden"></div><button id="retryBtn" class="retry-button hidden">Tentar novamente</button><small class="session-note">A sessão fica salva somente neste ambiente de teste.</small></div></div>
+  <div id="toast" class="toast"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
