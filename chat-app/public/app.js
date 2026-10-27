@@ -5,10 +5,12 @@ const els = {
   spinner: $('connectSpinner'), error: $('connectError'), retry: $('retryBtn'), chatList: $('chatList'), search: $('searchInput'),
   empty: $('emptyState'), thread: $('thread'), conversation: document.querySelector('.conversation'), messages: $('messages'),
   name: $('threadName'), meta: $('threadMeta'), avatar: $('threadAvatar'), input: $('messageInput'), composer: $('composer'),
+  replyBar: $('replyBar'), replyAuthor: $('replyAuthor'), replyText: $('replyText'), stickerInput: $('stickerInput'),
 };
 let statusState = 'starting';
 let chats = [];
 let activeChat = null;
+let replyTarget = null;
 let renderedIds = new Set();
 const profilePictureCache = new Map();
 const profilePicturePending = new Set();
@@ -51,6 +53,30 @@ function processProfilePictureQueue() {
       .catch(() => { profilePictureCache.set(chatId, null); })
       .finally(() => { profilePicturePending.delete(chatId); profilePictureActive -= 1; processProfilePictureQueue(); });
   }
+}
+function messagePreview(message) {
+  if (message.body) return message.body;
+  if (!message.hasMedia) return 'Mensagem';
+  return ({ sticker: 'Figurinha', image: 'Imagem', video: 'Vídeo', audio: 'Áudio', ptt: 'Mensagem de voz', document: 'Documento' })[message.type] || 'Mídia anexada';
+}
+function setReplyTarget(message) {
+  replyTarget = message;
+  els.replyAuthor.textContent = message.fromMe ? 'Você' : (message.author || activeChat?.name || 'Mensagem');
+  els.replyText.textContent = messagePreview(message);
+  els.replyBar.classList.remove('hidden');
+  els.input.focus();
+}
+function clearReplyTarget() {
+  replyTarget = null;
+  els.replyBar.classList.add('hidden');
+}
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Não consegui ler a imagem selecionada.'));
+    reader.readAsDataURL(file);
+  });
 }
 function displayStatus(data) {
   statusState = data.state;
@@ -131,15 +157,20 @@ function appendMessage(message) {
   const time = timeLabel(message.timestamp);
   const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
   let attachment = '';
-  if (mediaUrl && ['image', 'sticker'].includes(message.type)) attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="Imagem recebida" loading="lazy" /></a>`;
+  if (mediaUrl && message.type === 'sticker') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" /></a>`;
+  else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="Imagem recebida" loading="lazy" /></a>`;
   else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
   else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
   else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download>📎 Abrir ou baixar documento</a>`;
   else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">📎 Abrir mídia (${escapeHtml(message.type || 'arquivo')})</a>`;
   const content = `${attachment}${message.body ? `${attachment ? '<br>' : ''}${escapeHtml(message.body)}` : (!attachment ? `<span class="message-media">${escapeHtml(message.type || 'Mensagem')}</span>` : '')}`;
+  const quote = message.replyPreview || message.quotedMessage;
+  const quoteText = quote ? (quote.body || (quote.hasMedia ? messagePreview(quote) : 'Mensagem')) : '';
+  const quoteHtml = quote ? `<div class="quoted-message"><strong>${escapeHtml(quote.fromMe ? 'Você' : (quote.author || 'Mensagem citada'))}</strong><span>${escapeHtml(quoteText)}</span></div>` : '';
   const row = document.createElement('div');
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
-  row.innerHTML = `<div class="mini-avatar">${escapeHtml(message.fromMe ? 'T' : initials(activeChat?.name))}</div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(message.author || activeChat?.name || '')}</div>`}<div class="message-bubble">${content}</div><div class="message-meta">${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
+  row.innerHTML = `<div class="mini-avatar">${escapeHtml(message.fromMe ? 'T' : initials(activeChat?.name))}</div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(message.author || activeChat?.name || '')}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
+  row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
   els.messages.appendChild(row);
   els.messages.scrollTop = els.messages.scrollHeight;
 }
@@ -147,6 +178,7 @@ async function openChat(id) {
   const chat = chats.find((item) => item.id === id);
   if (!chat) return;
   activeChat = chat; renderedIds = new Set();
+  clearReplyTarget();
   els.name.textContent = chat.name;
   els.meta.textContent = chat.isGroup ? `Grupo · ${chat.number}` : chat.number;
   els.avatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>`;
@@ -175,6 +207,26 @@ els.search.addEventListener('input', renderChats);
 $('refreshBtn').addEventListener('click', loadChats);
 $('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar esta sessão do WhatsApp?')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
 $('retryBtn').addEventListener('click', () => location.reload());
+$('cancelReplyBtn').addEventListener('click', clearReplyTarget);
+$('stickerBtn').addEventListener('click', () => els.stickerInput.click());
+els.stickerInput.addEventListener('change', async () => {
+  const file = els.stickerInput.files?.[0];
+  if (!file || !activeChat) return;
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { showToast('Escolha uma imagem PNG, JPEG ou WebP.'); els.stickerInput.value = ''; return; }
+  if (file.size > 5 * 1024 * 1024) { showToast('A imagem da figurinha deve ter até 5 MB.'); els.stickerInput.value = ''; return; }
+  try {
+    showToast('Preparando figurinha…');
+    const dataUrl = await readFileAsDataUrl(file);
+    const [, data] = dataUrl.split(',');
+    const payload = { data, mimetype: file.type, filename: file.name };
+    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
+    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/stickers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (replyTarget) sent.replyPreview = { id: replyTarget.id, body: messagePreview(replyTarget), fromMe: replyTarget.fromMe };
+    appendMessage(sent);
+    clearReplyTarget();
+  } catch (error) { showToast(error.message); }
+  finally { els.stickerInput.value = ''; }
+});
 els.input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); els.composer.requestSubmit(); } });
 els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = `${Math.min(els.input.scrollHeight, 100)}px`; });
 els.composer.addEventListener('submit', async (event) => {
@@ -182,7 +234,15 @@ els.composer.addEventListener('submit', async (event) => {
   const body = els.input.value.trim();
   if (!body || !activeChat) return;
   els.input.value = ''; els.input.style.height = 'auto';
-  try { const message = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) }); appendMessage(message); }
+  const quoted = replyTarget;
+  try {
+    const payload = { body };
+    if (quoted?.id) payload.quotedMessageId = quoted.id;
+    const message = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (quoted) message.replyPreview = { id: quoted.id, body: messagePreview(quoted), fromMe: quoted.fromMe };
+    appendMessage(message);
+    clearReplyTarget();
+  }
   catch (error) { els.input.value = body; showToast(error.message); }
 });
 
