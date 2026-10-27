@@ -8,13 +8,13 @@ Na raiz do repositório:
 
 ```bash
 cd chat-app
-npm install
+npm run setup
 npm start
 ```
 
 Abra a porta **3000** na aba *Ports* do Codespaces. No primeiro acesso, leia o QR code exibido na página pelo WhatsApp em **Aparelhos conectados → Conectar aparelho**. A sessão fica em `chat-app/.wwebjs_auth` e é ignorada pelo Git.
 
-O Codespace precisa permitir que o Chromium/Puppeteer inicie. O primeiro `npm install` também instala o Chromium baixado pelo Puppeteer, o que pode levar alguns minutos.
+O comando `npm run setup` instala as dependências de produção da biblioteca local sem executar o hook `prepare` de desenvolvimento, instala as dependências da interface e baixa a versão do Chrome compatível com Puppeteer. A configuração do Codespaces instala as bibliotecas do sistema necessárias ao Chrome.
 
 ## Observações
 
