@@ -1,6 +1,10 @@
 const path = require('path');
 const express = require('express');
 const http = require('http');
+const fs = require('fs/promises');
+const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('../index.js');
@@ -9,6 +13,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const port = Number(process.env.PORT || 3000);
+const execFileAsync = promisify(execFile);
 const authPath = path.join(__dirname, '.wwebjs_auth');
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -225,16 +230,35 @@ app.post('/api/chats/:id/media', async (req, res) => {
   if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Não encontrei uma mídia na área de transferência.' });
   if (!['image/gif', 'image/png', 'image/jpeg', 'image/webp', 'video/mp4'].includes(type)) return res.status(400).json({ error: 'Formato não suportado. Cole um GIF ou uma imagem.' });
   if (Buffer.byteLength(data, 'base64') > 7 * 1024 * 1024) return res.status(413).json({ error: 'A mídia deve ter até 7 MB.' });
+  let tempDir;
   try {
-    const media = new MessageMedia(type, data, filename || (type === 'image/gif' ? 'animacao.gif' : 'imagem'));
+    let media;
     const options = {};
     if (quotedMessageId) options.quotedMessageId = String(quotedMessageId);
-    if (type === 'image/gif') options.sendVideoAsGif = true;
+    if (type === 'image/gif') {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wppapi-gif-'));
+      const inputPath = path.join(tempDir, 'input.gif');
+      const outputPath = path.join(tempDir, 'output.mp4');
+      await fs.writeFile(inputPath, Buffer.from(data, 'base64'));
+      await execFileAsync(process.env.FFMPEG_PATH || 'ffmpeg', [
+        '-y', '-i', inputPath, '-vf', 'fps=15,scale=min(640\\,iw):-2:flags=lanczos,format=yuv420p',
+        '-t', '15', '-an', '-movflags', '+faststart', outputPath,
+      ]);
+      const mp4 = await fs.readFile(outputPath);
+      media = new MessageMedia('video/mp4', mp4.toString('base64'), (filename || 'animacao.gif').replace(/\.gif$/i, '.mp4'));
+      options.sendVideoAsGif = true;
+    } else {
+      media = new MessageMedia(type, data, filename || 'imagem');
+      if (type === 'video/mp4') options.sendVideoAsGif = true;
+    }
     const sent = await client.sendMessage(req.params.id, media, options);
     res.status(201).json(serializeMessage(sent));
   } catch (error) {
     console.error('Falha ao enviar mídia colada:', error);
+    if (error.code === 'ENOENT') return res.status(500).json({ error: 'FFmpeg não está instalado. Execute npm run setup novamente.' });
     res.status(500).json({ error: error.message });
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
