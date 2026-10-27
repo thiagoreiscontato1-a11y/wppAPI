@@ -18,7 +18,8 @@
     </aside>
 
     <aside class="chat-sidebar">
-      <header class="sidebar-header"><div><p class="eyebrow">WPPAPI</p><h1>Chat</h1></div><div class="header-actions"><button class="icon-button theme-toggle" id="themeToggle" type="button" title="Ativar modo escuro" aria-label="Ativar modo escuro" aria-pressed="false">☾</button><button class="icon-button sound-toggle" id="soundToggle" type="button" title="Desativar som das notificações" aria-label="Desativar som das notificações" aria-pressed="true">♪</button><button class="icon-button" id="refreshBtn" title="Atualizar conversas">↻</button></div></header>
+      <header class="sidebar-header"><div><p class="eyebrow">WPPAPI</p><h1>Chat</h1></div><div class="header-actions"><button class="icon-button theme-toggle" id="themeToggle" type="button" title="Ativar modo escuro" aria-label="Ativar modo escuro" aria-pressed="false">☾</button><button class="icon-button sound-toggle" id="soundToggle" type="button" title="Desativar som das notificações" aria-label="Desativar som das notificações" aria-pressed="true">♪</button><button class="icon-button" id="notificationSettingsBtn" type="button" title="Configurar notificações" aria-label="Configurar notificações">♧</button><button class="icon-button" id="refreshBtn" title="Atualizar conversas">↻</button></div></header>
+      <div id="notificationSettings" class="notification-settings hidden"><strong>Notificações</strong><label><input id="inAppNotificationsToggle" type="checkbox" checked /> Aviso flutuante no chat</label><label><input id="desktopNotificationsToggle" type="checkbox" /> Notificação do Windows</label><small id="desktopNotificationHelp">O navegador pode pedir autorização para mostrar notificações.</small></div>
       <label class="search-box"><span>⌕</span><input id="searchInput" placeholder="Pesquisar" autocomplete="off" /></label>
       <div class="section-heading"><span>Recentes</span><button class="tiny-button" title="Mais opções">···</button></div>
       <div id="chatList" class="chat-list"><div class="list-loading">Carregando conversas…</div></div>
@@ -32,7 +33,7 @@
         <div class="prototype-note"><span>✦</span><div><strong>Prévia de teste</strong><small>As mensagens são enviadas pela sessão conectada do WhatsApp.</small></div></div>
       </section>
       <section id="thread" class="thread hidden">
-        <header class="thread-header"><div class="person-avatar" id="threadAvatar">?</div><div class="person-title"><h2 id="threadName">Conversa</h2><p id="threadMeta">WhatsApp</p></div><div class="thread-actions"><button class="icon-button" title="Pesquisar nesta conversa">⌕</button><button class="icon-button" title="Mais opções">···</button></div></header>
+        <header class="thread-header"><div class="person-avatar" id="threadAvatar">?</div><div class="person-title"><h2 id="threadName">Conversa</h2><p id="threadMeta">WhatsApp</p></div><div class="thread-actions"><button class="icon-button" id="muteChatBtn" type="button" title="Silenciar conversa" aria-label="Silenciar conversa" aria-pressed="false">♩</button><button class="icon-button" title="Pesquisar nesta conversa">⌕</button><button class="icon-button" title="Mais opções">···</button></div></header>
         <div class="thread-banner"><span class="lock-icon">♧</span> As mensagens desta conversa são sincronizadas com o WhatsApp conectado.</div>
         <div id="messages" class="messages"><div class="messages-loading">Carregando mensagens…</div></div>
         <div id="replyBar" class="reply-bar hidden"><div class="reply-accent"></div><div class="reply-copy"><strong id="replyAuthor"></strong><span id="replyText"></span></div><button id="cancelReplyBtn" class="icon-button" type="button" title="Cancelar resposta">×</button></div>
