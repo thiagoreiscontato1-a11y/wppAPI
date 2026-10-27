@@ -3,14 +3,14 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
-const { Client, LocalAuth } = require('../index.js');
+const { Client, LocalAuth, MessageMedia } = require('../index.js');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const port = Number(process.env.PORT || 3000);
 const authPath = path.join(__dirname, '.wwebjs_auth');
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 let qrDataUrl = null;
@@ -25,6 +25,8 @@ function publishStatus() {
 }
 
 function serializeMessage(msg) {
+  const quoted = msg._data?.quotedMsg;
+  const quotedId = quoted?.id?._serialized || quoted?.id?.$1 || quoted?.id || null;
   return {
     id: msg.id?._serialized,
     body: msg.body || '',
@@ -33,6 +35,13 @@ function serializeMessage(msg) {
     timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
     author: msg._data?.notifyName || msg._data?.pushname || '',
     hasMedia: Boolean(msg.hasMedia),
+    quotedMessage: quoted ? {
+      id: quotedId,
+      body: quoted.body || quoted.caption || '',
+      type: quoted.type || 'chat',
+      fromMe: Boolean(quoted.id?.fromMe),
+      hasMedia: Boolean(quoted.directPath),
+    } : null,
   };
 }
 
@@ -175,10 +184,28 @@ app.post('/api/chats/:id/messages', async (req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   const body = String(req.body?.body || '').trim();
   if (!body) return res.status(400).json({ error: 'Escreva uma mensagem.' });
+  const quotedMessageId = String(req.body?.quotedMessageId || '').trim();
   try {
-    const sent = await client.sendMessage(req.params.id, body);
+    const sent = await client.sendMessage(req.params.id, body, quotedMessageId ? { quotedMessageId } : {});
     res.status(201).json(serializeMessage(sent));
   } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/chats/:id/stickers', async (req, res) => {
+  if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
+  const { data, mimetype, filename, quotedMessageId } = req.body || {};
+  if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Selecione uma imagem para a figurinha.' });
+  if (!String(mimetype || '').startsWith('image/')) return res.status(400).json({ error: 'O arquivo precisa ser uma imagem.' });
+  try {
+    const media = new MessageMedia(mimetype, data, filename || 'figurinha');
+    const options = { sendMediaAsSticker: true };
+    if (quotedMessageId) options.quotedMessageId = String(quotedMessageId);
+    const sent = await client.sendMessage(req.params.id, media, options);
+    res.status(201).json(serializeMessage(sent));
+  } catch (error) {
+    console.error('Falha ao enviar figurinha:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/logout', async (_req, res) => {
