@@ -155,7 +155,7 @@ function readFileAsDataUrl(file) {
 function displayStatus(data) {
   statusState = data.state;
   const connected = data.state === 'ready';
-  $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando leitura do QR' : 'Conectando ao WhatsApp';
+  $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando leitura do QR' : data.state === 'authenticated' ? 'Sincronizando WhatsApp' : 'Conectando ao WhatsApp';
   $('sidebarDot').classList.toggle('ready', connected);
   if (connected) { els.overlay.classList.add('hidden'); loadChats(); return; }
   els.overlay.classList.remove('hidden');
@@ -166,7 +166,10 @@ function displayStatus(data) {
   els.error.classList.toggle('hidden', !data.error);
   els.error.textContent = data.error || '';
   if (data.state === 'qr') { els.title.textContent = 'Conecte seu WhatsApp'; els.text.textContent = 'Leia o QR code abaixo com o celular que ficará conectado a este teste.'; }
-  else if (data.state === 'authenticated') { els.title.textContent = 'Celular conectado'; els.text.textContent = 'Sincronizando conversas…'; }
+  else if (data.state === 'authenticated') {
+    els.title.textContent = 'Celular conectado';
+    els.text.textContent = Number.isFinite(data.loadingPercent) ? `Sincronizando conversas… ${data.loadingPercent}%` : 'WhatsApp autenticado. Aguardando a sincronização inicial…';
+  }
   else if (data.state === 'error' || data.state === 'disconnected') { els.title.textContent = 'Não foi possível conectar'; els.text.textContent = 'Confira a sessão do WhatsApp e tente iniciar novamente.'; }
   else { els.title.textContent = 'Conectando ao WhatsApp'; els.text.textContent = 'Iniciando uma sessão segura no Codespace…'; }
 }
