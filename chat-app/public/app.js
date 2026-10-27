@@ -10,11 +10,48 @@ let statusState = 'starting';
 let chats = [];
 let activeChat = null;
 let renderedIds = new Set();
+const profilePictureCache = new Map();
+const profilePicturePending = new Set();
+const profilePictureQueue = [];
+let profilePictureActive = 0;
+let profileObserver;
 let toastTimer;
 
 function initials(text = '?') { return text.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'; }
 function escapeHtml(text = '') { return String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 function showToast(message) { const el = $('toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600); }
+function applyProfilePicture(chatId, url) {
+  document.querySelectorAll('.profile-picture-slot').forEach((slot) => {
+    if (slot.dataset.profileId !== chatId) return;
+    slot.querySelector('img')?.remove();
+    slot.classList.remove('has-photo');
+    if (!url) return;
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.onload = () => slot.classList.add('has-photo');
+    img.onerror = () => img.remove();
+    slot.appendChild(img);
+  });
+}
+function queueProfilePicture(chatId) {
+  if (profilePictureCache.has(chatId)) { applyProfilePicture(chatId, profilePictureCache.get(chatId)); return; }
+  if (profilePicturePending.has(chatId)) return;
+  profilePicturePending.add(chatId);
+  profilePictureQueue.push(chatId);
+  processProfilePictureQueue();
+}
+function processProfilePictureQueue() {
+  while (profilePictureActive < 2 && profilePictureQueue.length) {
+    const chatId = profilePictureQueue.shift();
+    profilePictureActive += 1;
+    api(`/api/chats/${encodeURIComponent(chatId)}/profile-picture`)
+      .then(({ url }) => { profilePictureCache.set(chatId, url || null); applyProfilePicture(chatId, url || null); })
+      .catch(() => { profilePictureCache.set(chatId, null); })
+      .finally(() => { profilePicturePending.delete(chatId); profilePictureActive -= 1; processProfilePictureQueue(); });
+  }
+}
 function displayStatus(data) {
   statusState = data.state;
   const connected = data.state === 'ready';
@@ -58,10 +95,22 @@ function renderChats() {
   const shown = chats.filter((chat) => `${chat.name} ${chat.number} ${chat.lastMessage}`.toLocaleLowerCase('pt-BR').includes(query));
   if (!shown.length) { els.chatList.innerHTML = `<div class="list-loading">${chats.length ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa encontrada.'}</div>`; return; }
   els.chatList.innerHTML = shown.map((chat) => `<div class="chat-row ${activeChat?.id === chat.id ? 'selected' : ''}" data-id="${escapeHtml(chat.id)}">
-    <div class="chat-avatar ${chat.isGroup ? 'group' : ''}">${escapeHtml(initials(chat.name))}${!chat.isGroup ? '<i class="presence"></i>' : ''}</div>
+    <div class="chat-avatar profile-picture-slot ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>${!chat.isGroup ? '<i class="presence"></i>' : ''}</div>
     <div class="chat-copy"><div class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></div><div class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${chat.unreadCount ? `<span class="unread">${chat.unreadCount}</span>` : ''}</div></div>
   </div>`).join('');
   els.chatList.querySelectorAll('.chat-row').forEach((row) => row.addEventListener('click', () => openChat(row.dataset.id)));
+  profileObserver?.disconnect();
+  profileObserver = new IntersectionObserver((items) => {
+    items.forEach((item) => {
+      if (!item.isIntersecting) return;
+      profileObserver.unobserve(item.target);
+      queueProfilePicture(item.target.dataset.profileId);
+    });
+  }, { root: els.chatList, rootMargin: '80px' });
+  els.chatList.querySelectorAll('.profile-picture-slot').forEach((slot) => {
+    if (profilePictureCache.has(slot.dataset.profileId)) applyProfilePicture(slot.dataset.profileId, profilePictureCache.get(slot.dataset.profileId));
+    else profileObserver.observe(slot);
+  });
 }
 async function loadChats() {
   if (statusState !== 'ready') return;
@@ -80,7 +129,14 @@ function appendMessage(message) {
   if (message.id && renderedIds.has(message.id)) return;
   if (message.id) renderedIds.add(message.id);
   const time = timeLabel(message.timestamp);
-  const content = message.body ? escapeHtml(message.body) : `<span class="message-media">${message.hasMedia ? '📎 Mídia anexada' : escapeHtml(message.type || 'Mensagem')}</span>`;
+  const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
+  let attachment = '';
+  if (mediaUrl && ['image', 'sticker'].includes(message.type)) attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="Imagem recebida" loading="lazy" /></a>`;
+  else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
+  else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
+  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download>📎 Abrir ou baixar documento</a>`;
+  else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">📎 Abrir mídia (${escapeHtml(message.type || 'arquivo')})</a>`;
+  const content = `${attachment}${message.body ? `${attachment ? '<br>' : ''}${escapeHtml(message.body)}` : (!attachment ? `<span class="message-media">${escapeHtml(message.type || 'Mensagem')}</span>` : '')}`;
   const row = document.createElement('div');
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
   row.innerHTML = `<div class="mini-avatar">${escapeHtml(message.fromMe ? 'T' : initials(activeChat?.name))}</div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(message.author || activeChat?.name || '')}</div>`}<div class="message-bubble">${content}</div><div class="message-meta">${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
@@ -93,8 +149,11 @@ async function openChat(id) {
   activeChat = chat; renderedIds = new Set();
   els.name.textContent = chat.name;
   els.meta.textContent = chat.isGroup ? `Grupo · ${chat.number}` : chat.number;
-  els.avatar.textContent = initials(chat.name);
+  els.avatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>`;
+  els.avatar.dataset.profileId = chat.id;
+  els.avatar.classList.add('profile-picture-slot');
   els.avatar.classList.toggle('group', chat.isGroup);
+  queueProfilePicture(chat.id);
   els.empty.classList.add('hidden'); els.thread.classList.remove('hidden'); els.conversation.classList.add('thread-open');
   renderChats();
   els.messages.innerHTML = '<div class="messages-loading">Carregando mensagens…</div>';
