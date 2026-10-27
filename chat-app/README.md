@@ -30,3 +30,5 @@ A prévia carrega fotos de perfil sob demanda e exibe imagens, vídeos e áudios
 O botão de figurinha permite selecionar PNG, JPEG ou WebP (até 5 MB) e envia a imagem como figurinha. Use o botão **↩** em uma mensagem para selecioná-la como citação; a resposta pode ser uma mensagem de texto ou uma figurinha.
 
 O seletor no cabeçalho alterna entre tema claro e escuro e guarda a escolha neste navegador. Mensagens novas em outras conversas mostram um aviso discreto e atualizam o contador de não lidas; o aviso fecha sozinho e não solicita permissão do navegador.
+
+O controle de som ao lado do tema liga ou silencia o toque curto das notificações. O navegador libera áudio após a primeira interação do usuário com a página; o som é limitado a um toque a cada 2,2 segundos.
