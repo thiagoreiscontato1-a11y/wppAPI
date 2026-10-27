@@ -136,17 +136,24 @@ app.get('/api/media/:messageId', async (req, res) => {
 app.get('/api/chats', async (_req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   try {
-    const chats = await client.getChats();
-    const result = chats.map((chat) => ({
-        id: chat.id._serialized,
-        name: chat.name || chat.id.user,
-        isGroup: Boolean(chat.isGroup),
-        unreadCount: chat.unreadCount || 0,
-        timestamp: chat.timestamp || 0,
-        lastMessage: chat.lastMessage?.body || '',
-        number: chat.id.user,
-        profilePic: null,
-      }));
+    const result = await client.pupPage.evaluate(() => {
+      const collection = window.require('WAWebCollections');
+      return collection.Chat.getModelsArray().map((chat) => {
+        const id = chat.id?._serialized || '';
+        const lastMessageId = chat.lastReceivedKey?._serialized || chat.lastReceivedKey?.$1;
+        const lastMessage = lastMessageId ? collection.Msg.get(lastMessageId) : null;
+        return {
+          id,
+          name: chat.formattedTitle || chat.name || chat.id?.user || id,
+          isGroup: Boolean(chat.groupMetadata || id.endsWith('@g.us')),
+          unreadCount: Number(chat.unreadCount || 0),
+          timestamp: Number(chat.t || 0),
+          lastMessage: lastMessage?.body || lastMessage?.caption || '',
+          number: chat.id?.user || '',
+          profilePic: null,
+        };
+      }).filter((chat) => chat.id);
+    });
     result.sort((a, b) => b.timestamp - a.timestamp);
     res.json(result);
   } catch (error) {
