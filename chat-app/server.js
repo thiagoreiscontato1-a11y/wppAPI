@@ -89,7 +89,7 @@ async function serializeMessageForChat(msg) {
 
   const contactName = await contactNameCache.get(authorId);
   if (contactName) serialized.author = contactName;
-  if (!serialized.author) serialized.author = authorId.split('@')[0].replace(/:\\d+$/, '');
+  if (!serialized.author) serialized.author = authorId.split('@')[0].replace(/:\d+$/, '');
   return serialized;
 }
 
