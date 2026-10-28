@@ -74,25 +74,54 @@ function serializeMessage(msg) {
 }
 
 
+async function getContactDisplayName(contactId) {
+  if (!contactId) return null;
+  if (!contactNameCache.has(contactId)) {
+    const lookup = client.getContactById(contactId)
+      .then((contact) => contact?.name || contact?.pushname || contact?.shortName || null)
+      .catch(() => null);
+    contactNameCache.set(contactId, lookup);
+  }
+  return contactNameCache.get(contactId);
+}
+
 async function serializeMessageForChat(msg) {
   const serialized = serializeMessage(msg);
   const authorId = msg.author;
   if (!authorId) return serialized;
 
   serialized.authorId = authorId;
-  if (!contactNameCache.has(authorId)) {
-    const lookup = client.getContactById(authorId)
-      .then((contact) => contact?.name || contact?.pushname || contact?.shortName || null)
-      .catch(() => null);
-    contactNameCache.set(authorId, lookup);
+  let lookupId = authorId;
+  let displayName = await getContactDisplayName(lookupId);
+  let phoneId = authorId.includes('@lid') ? null : authorId;
+
+  if (!displayName && authorId.includes('@lid')) {
+    try {
+      const [resolved] = await client.getContactLidAndPhone([authorId]);
+      phoneId = resolved?.pn || null;
+      if (phoneId) {
+        lookupId = phoneId;
+        displayName = await getContactDisplayName(lookupId);
+      }
+    } catch {}
   }
 
-  const contactName = await contactNameCache.get(authorId);
-  if (contactName) serialized.author = contactName;
-  if (!serialized.author) serialized.author = authorId.split('@')[0].replace(/:\d+$/, '');
+  if (displayName) {
+    serialized.author = displayName;
+    return serialized;
+  }
+
+  if (phoneId) {
+    try {
+      serialized.author = await client.getFormattedNumber(phoneId);
+    } catch {}
+    serialized.author ||= phoneId.split('@')[0].replace(/:\\d+$/, '');
+    return serialized;
+  }
+
+  serialized.author ||= 'Participante';
   return serialized;
 }
-
 async function startClient() {
   state = 'starting';
   lastError = null;
