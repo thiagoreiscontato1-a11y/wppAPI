@@ -301,7 +301,7 @@ function appendMessage(message) {
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
   const senderAvatarId = !message.fromMe && activeChat?.isGroup ? message.authorId : '';
   const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
-    ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\\d+$/, '') : 'Participante'))
+    ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\d+$/, '') : 'Participante'))
     : (message.author || activeChat?.name || '');
   row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(message.fromMe ? 'T' : initials(senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
