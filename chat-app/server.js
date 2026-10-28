@@ -25,6 +25,7 @@ let loadingPercent = null;
 let client;
 const profilePictureCache = new Map();
 const profilePictureRequests = new Map();
+const contactNameCache = new Map();
 
 async function getProfilePictureWithRetry(chatId) {
   const transientPattern = /execution context was destroyed|cannot find context with specified id|target closed|session closed|detached frame/i;
@@ -60,6 +61,7 @@ function serializeMessage(msg) {
     fromMe: Boolean(msg.fromMe),
     timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
     author: msg._data?.notifyName || msg._data?.pushname || '',
+    authorId: msg.author || null,
     hasMedia: Boolean(msg.hasMedia),
     quotedMessage: quoted ? {
       id: quotedId,
@@ -69,6 +71,26 @@ function serializeMessage(msg) {
       hasMedia: Boolean(quoted.directPath),
     } : null,
   };
+}
+
+
+async function serializeMessageForChat(msg) {
+  const serialized = serializeMessage(msg);
+  const authorId = msg.author;
+  if (!authorId) return serialized;
+
+  serialized.authorId = authorId;
+  if (!contactNameCache.has(authorId)) {
+    const lookup = client.getContactById(authorId)
+      .then((contact) => contact?.name || contact?.pushname || contact?.shortName || null)
+      .catch(() => null);
+    contactNameCache.set(authorId, lookup);
+  }
+
+  const contactName = await contactNameCache.get(authorId);
+  if (contactName) serialized.author = contactName;
+  if (!serialized.author) serialized.author = authorId.split('@')[0].replace(/:\\d+$/, '');
+  return serialized;
 }
 
 async function startClient() {
@@ -115,9 +137,15 @@ async function startClient() {
     lastError = String(reason || 'Sessão desconectada');
     publishStatus();
   });
-  client.on('message', (msg) => io.emit('message', { chatId: msg.from, message: serializeMessage(msg) }));
-  client.on('message_create', (msg) => {
-    if (msg.fromMe) io.emit('message', { chatId: msg.to, message: serializeMessage(msg) });
+  client.on('message', async (msg) => {
+    const message = await serializeMessageForChat(msg);
+    io.emit('message', { chatId: msg.from, message });
+  });
+  client.on('message_create', async (msg) => {
+    if (msg.fromMe) {
+      const message = await serializeMessageForChat(msg);
+      io.emit('message', { chatId: msg.to, message });
+    }
   });
   client.on('message_ack', (msg, ack) => io.emit('ack', { id: msg.id?._serialized, ack }));
   try {
@@ -209,7 +237,7 @@ app.get('/api/chats/:id/messages', async (req, res) => {
   try {
     const chat = await client.getChatById(req.params.id);
     const messages = await chat.fetchMessages({ limit: Math.min(Number(req.query.limit) || 60, 100) });
-    res.json(messages.map(serializeMessage));
+    res.json(await Promise.all(messages.map(serializeMessageForChat)));
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
