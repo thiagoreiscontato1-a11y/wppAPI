@@ -26,6 +26,25 @@ let client;
 const profilePictureCache = new Map();
 const profilePictureRequests = new Map();
 
+async function getProfilePictureWithRetry(chatId) {
+  const transientPattern = /execution context was destroyed|cannot find context with specified id|target closed|session closed|detached frame/i;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await client.getProfilePicUrl(chatId);
+    } catch (error) {
+      const message = String(error?.message || error);
+      if (!transientPattern.test(message)) throw error;
+      if (attempt < 2 && state === 'ready' && client?.pupPage && !client.pupPage.isClosed()) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        continue;
+      }
+      console.warn(`Contexto do WhatsApp reiniciou durante a busca de foto (${chatId}); usando avatar padrão.`);
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function publishStatus() {
   io.emit('status', { state, qrDataUrl, error: lastError, loadingPercent });
 }
@@ -121,8 +140,7 @@ app.get('/api/chats/:id/profile-picture', async (req, res) => {
     if (!profilePictureCache.has(chatId)) {
       let request = profilePictureRequests.get(chatId);
       if (!request) {
-        request = client.getProfilePicUrl(chatId)
-          .catch((error) => { throw error; })
+        request = getProfilePictureWithRetry(chatId)
           .finally(() => profilePictureRequests.delete(chatId));
         profilePictureRequests.set(chatId, request);
       }
@@ -130,8 +148,8 @@ app.get('/api/chats/:id/profile-picture', async (req, res) => {
     }
     res.json({ url: profilePictureCache.get(chatId) });
   } catch (error) {
-    console.error('Falha ao carregar foto de perfil:', error);
-    res.status(500).json({ error: error.message });
+    console.warn(`Foto de perfil indisponível para ${chatId}: ${error.message}`);
+    res.json({ url: null });
   }
 });
 
