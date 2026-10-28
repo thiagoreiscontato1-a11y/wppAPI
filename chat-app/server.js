@@ -115,7 +115,7 @@ async function serializeMessageForChat(msg) {
     try {
       serialized.author = await client.getFormattedNumber(phoneId);
     } catch {}
-    serialized.author ||= phoneId.split('@')[0].replace(/:\\d+$/, '');
+    serialized.author ||= phoneId.split('@')[0].replace(/:\d+$/, '');
     return serialized;
   }
 
