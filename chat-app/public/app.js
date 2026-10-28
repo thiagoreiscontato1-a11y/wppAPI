@@ -299,9 +299,14 @@ function appendMessage(message) {
   const quoteHtml = quote ? `<div class="quoted-message"><strong>${escapeHtml(quote.fromMe ? 'Você' : (quote.author || 'Mensagem citada'))}</strong><span>${escapeHtml(quoteText)}</span></div>` : '';
   const row = document.createElement('div');
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
-  row.innerHTML = `<div class="mini-avatar">${escapeHtml(message.fromMe ? 'T' : initials(activeChat?.name))}</div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(message.author || activeChat?.name || '')}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
+  const senderAvatarId = !message.fromMe && activeChat?.isGroup ? message.authorId : '';
+  const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
+    ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\\d+$/, '') : 'Participante'))
+    : (message.author || activeChat?.name || '');
+  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(message.fromMe ? 'T' : initials(senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
   els.messages.appendChild(row);
+  if (senderAvatarId) queueProfilePicture(senderAvatarId);
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 async function openChat(id) {
