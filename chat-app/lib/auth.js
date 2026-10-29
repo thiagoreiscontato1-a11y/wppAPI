@@ -7,7 +7,7 @@ const LOGIN_LOCK_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILURES_PER_IP = 5;
 // Barreira extra caso o IP real não chegue ao servidor (proxy mal configurado ou IP falsificado).
 const LOGIN_MAX_FAILURES_GLOBAL = 50;
-const PUBLIC_PATHS = new Set(['/healthz', '/login.html', '/login.js', '/styles.css', '/favicon.ico', '/api/login']);
+const PUBLIC_PATHS = new Set(['/healthz', '/login.html', '/login.js', '/styles.css', '/theme.js', '/favicon.ico', '/api/login']);
 
 function safeEqual(a, b) {
   const left = crypto.createHash('sha256').update(String(a)).digest();

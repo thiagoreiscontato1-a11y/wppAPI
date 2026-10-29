@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
   overlay: $('connectOverlay'), title: $('connectTitle'), text: $('connectText'), qrWrap: $('qrWrap'), qr: $('qrImage'),
   spinner: $('connectSpinner'), error: $('connectError'), retry: $('retryBtn'), chatList: $('chatList'), search: $('searchInput'),
-  empty: $('emptyState'), thread: $('thread'), conversation: document.querySelector('.conversation'), messages: $('messages'),
+  empty: $('emptyState'), thread: $('thread'), app: $('app'), messages: $('messages'),
   name: $('threadName'), meta: $('threadMeta'), avatar: $('threadAvatar'), input: $('messageInput'), composer: $('composer'),
   replyBar: $('replyBar'), replyAuthor: $('replyAuthor'), replyText: $('replyText'), stickerInput: $('stickerInput'),
 };
@@ -41,35 +41,35 @@ let notificationSoundEnabled = true;
 let inAppNotificationsEnabled = true;
 let desktopNotificationsEnabled = false;
 let mutedChats = new Set();
+let chatFilter = 'all';
 
 try { notificationSoundEnabled = localStorage.getItem('wppapi-chat-sound') !== 'off'; } catch {}
 try { inAppNotificationsEnabled = localStorage.getItem('wppapi-chat-inapp') !== 'off'; } catch {}
 try { desktopNotificationsEnabled = localStorage.getItem('wppapi-chat-desktop') === 'on'; } catch {}
 try { mutedChats = new Set(JSON.parse(localStorage.getItem('wppapi-chat-muted') || '[]')); } catch {}
 
+// theme.js já aplicou o tema salvo (ou o do sistema) antes da página aparecer.
 function setTheme(theme, persist = true) {
   const dark = theme === 'dark';
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  const button = $('themeToggle');
-  button.textContent = dark ? '☼' : '☾';
-  button.title = dark ? 'Ativar modo claro' : 'Ativar modo escuro';
-  button.setAttribute('aria-label', button.title);
-  button.setAttribute('aria-pressed', String(dark));
-  document.querySelector('meta[name="theme-color"]').content = dark ? '#1b1c22' : '#464775';
+  $('themeToggle').checked = dark;
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#0c201c' : '#10302a';
   if (persist) {
     try { localStorage.setItem('wppapi-chat-theme', dark ? 'dark' : 'light'); } catch {}
   }
 }
+setTheme(document.documentElement.dataset.theme, false);
 
-try { setTheme(localStorage.getItem('wppapi-chat-theme') || 'light', false); }
-catch { setTheme('light', false); }
+function iconHtml(name) { return `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`; }
+// Cor estável por contato, para avatares e nomes em grupos.
+function toneFor(id = '') {
+  let hash = 0;
+  for (const char of String(id)) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  return `tone-${hash % 6}`;
+}
 
 function updateSoundToggle() {
-  const button = $('soundToggle');
-  button.textContent = notificationSoundEnabled ? '♪' : '♩';
-  button.title = notificationSoundEnabled ? 'Desativar som das notificações' : 'Ativar som das notificações';
-  button.setAttribute('aria-label', button.title);
-  button.setAttribute('aria-pressed', String(notificationSoundEnabled));
+  $('soundToggle').checked = notificationSoundEnabled;
 }
 function unlockNotificationAudio() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -119,19 +119,24 @@ function updateNotificationSettings() {
   $('inAppNotificationsToggle').checked = inAppNotificationsEnabled;
   $('desktopNotificationsToggle').checked = desktopNotificationsEnabled;
   $('desktopNotificationsToggle').disabled = !('Notification' in window);
-  $('desktopNotificationHelp').textContent = !('Notification' in window) ? 'Este navegador não oferece notificações do Windows.' : Notification.permission === 'denied' ? 'Notificações bloqueadas nas permissões do navegador.' : 'O navegador pode pedir autorização para mostrar notificações.';
+  $('desktopNotificationHelp').textContent = !('Notification' in window) ? 'Este navegador não oferece notificações do sistema.' : Notification.permission === 'denied' ? 'Notificações bloqueadas nas permissões do navegador.' : 'O navegador pode pedir autorização para mostrar notificações.';
 }
 function updateMuteButton() {
   if (!activeChat) return;
   const muted = mutedChats.has(activeChat.id);
   const button = $('muteChatBtn');
-  button.textContent = muted ? '♬' : '♩';
+  button.innerHTML = iconHtml(muted ? 'bell-off' : 'bell');
   button.title = muted ? 'Ativar notificações desta conversa' : 'Silenciar conversa';
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(muted));
 }
 
-function initials(text = '?') { return text.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'; }
+// Iniciais do nome; para um número de telefone sem nome salvo, os dois últimos dígitos.
+function initials(text = '?') {
+  const words = text.trim().split(/\s+/).filter((part) => /\p{L}/u.test(part));
+  if (!words.length) return text.replace(/\D/g, '').slice(-2) || '?';
+  return words.slice(0, 2).map((part) => part.match(/\p{L}/u)[0]).join('').toUpperCase();
+}
 function escapeHtml(text = '') { return String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 function showToast(message) { const el = $('toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600); }
 function applyPictureToSlot(slot, url) {
@@ -236,10 +241,10 @@ function displayStatus(data) {
     myName = data.me.name || '';
     const avatar = document.querySelector('.me-avatar');
     avatar.textContent = initials(myName || 'Você');
-    avatar.title = myName ? `${myName} (você)` : 'Você';
+    $('meName').textContent = myName || 'Você';
   }
   const connected = data.state === 'ready';
-  $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando leitura do QR' : data.state === 'authenticated' ? 'Sincronizando WhatsApp' : 'Conectando ao WhatsApp';
+  $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando o QR code' : data.state === 'authenticated' ? 'Sincronizando conversas' : 'Conectando ao WhatsApp';
   $('sidebarDot').classList.toggle('ready', connected);
   if (connected) { els.overlay.classList.add('hidden'); loadChats(); return; }
   els.overlay.classList.remove('hidden');
@@ -249,7 +254,7 @@ function displayStatus(data) {
   els.retry.classList.toggle('hidden', data.state !== 'error' && data.state !== 'disconnected');
   els.error.classList.toggle('hidden', !data.error);
   els.error.textContent = data.error || '';
-  if (data.state === 'qr') { els.title.textContent = 'Conecte seu WhatsApp'; els.text.textContent = 'Leia o QR code abaixo com o celular que ficará conectado a este teste.'; }
+  if (data.state === 'qr') { els.title.textContent = 'Conecte seu WhatsApp'; els.text.textContent = 'Leia o QR code com o celular que vai ficar conectado a este servidor.'; }
   else if (data.state === 'authenticated') {
     els.title.textContent = 'Celular conectado';
     els.text.textContent = Number.isFinite(data.loadingPercent) ? `Sincronizando conversas… ${data.loadingPercent}%` : 'WhatsApp autenticado. Aguardando a sincronização inicial…';
@@ -328,18 +333,20 @@ function timeLabel(timestamp) {
 // A lista reaproveita uma linha por conversa e só redesenha o que mudou; assim uma mensagem
 // nova atualiza uma linha e a move para o topo, em vez de recriar a lista inteira.
 function chatAvatarHtml(chat) {
-  return `<div class="chat-avatar profile-picture-slot ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>${!chat.isGroup ? '<i class="presence"></i>' : ''}</div>`;
+  return `<span class="avatar chat-avatar profile-picture-slot ${toneFor(chat.id)} ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}" aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span></span>`;
 }
 function chatCopyHtml(chat) {
-  return `<div class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></div><div class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${chat.unreadCount ? `<span class="unread">${chat.unreadCount}</span>` : ''}</div>`;
+  const muted = mutedChats.has(chat.id) ? `<svg class="icon chat-muted" aria-label="Silenciada"><use href="#i-bell-off"/></svg>` : '';
+  return `<span class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></span><span class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${muted}${chat.unreadCount ? `<span class="unread" aria-label="${chat.unreadCount} não lidas">${chat.unreadCount}</span>` : ''}</span>`;
 }
 function chatRowFor(chat) {
   let entry = chatRows.get(chat.id);
   if (!entry) {
-    const row = document.createElement('div');
+    const row = document.createElement('button');
+    row.type = 'button';
     row.className = 'chat-row';
     row.dataset.id = chat.id;
-    row.innerHTML = '<div class="chat-copy"></div>';
+    row.innerHTML = '<span class="chat-copy"></span>';
     row.addEventListener('click', () => openChat(chat.id));
     entry = { row, avatarHtml: '', copyHtml: '' };
     chatRows.set(chat.id, entry);
@@ -360,6 +367,8 @@ function chatRowFor(chat) {
     entry.copyHtml = copyHtml;
   }
   entry.row.classList.toggle('selected', activeChat?.id === chat.id);
+  entry.row.classList.toggle('has-unread', Boolean(chat.unreadCount));
+  if (activeChat?.id === chat.id) entry.row.setAttribute('aria-current', 'true'); else entry.row.removeAttribute('aria-current');
   return entry.row;
 }
 function renderChats() {
@@ -374,9 +383,16 @@ function renderChats() {
   }, { root: els.chatList, rootMargin: '80px' });
   const query = els.search.value.trim().toLocaleLowerCase('pt-BR');
   const shown = chats
+    .filter((chat) => chatFilter !== 'unread' || chat.unreadCount)
+    .filter((chat) => chatFilter !== 'groups' || chat.isGroup)
     .filter((chat) => `${chat.name} ${chat.number} ${chat.lastMessage}`.toLocaleLowerCase('pt-BR').includes(query))
     .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  if (!shown.length) { els.chatList.innerHTML = '<div class="list-loading">Nenhuma conversa encontrada.</div>'; return; }
+  if (!shown.length) {
+    const note = query ? 'Nenhuma conversa encontrada para essa busca.' : chatFilter === 'unread' ? 'Tudo lido por aqui.' : chatFilter === 'groups' ? 'Nenhum grupo nesta conta.' : 'Nenhuma conversa ainda.';
+    els.chatList.innerHTML = `<div class="list-note">${note}</div>`;
+    return;
+  }
+  els.chatList.querySelector('.list-note')?.remove();
   // Percorre a lista na ordem desejada, movendo só as linhas que estão fora do lugar.
   let cursor = els.chatList.firstElementChild;
   shown.forEach((chat) => {
@@ -403,7 +419,7 @@ async function loadChats() {
     for (const id of chatRows.keys()) if (!ids.has(id)) chatRows.delete(id);
     renderChats();
   }
-  catch (error) { els.chatList.innerHTML = `<div class="list-loading">${escapeHtml(error.message)}</div>`; }
+  catch (error) { els.chatList.innerHTML = `<div class="list-note">${escapeHtml(error.message)}</div>`; }
 }
 function dayLabel(timestamp) {
   const date = new Date(timestamp * 1000);
@@ -420,21 +436,24 @@ function mergeAck(previous, next) {
   return Math.max(previous, next);
 }
 function applyAckStatus(element, ack) {
-  const [icon, label, variant] = ack === -1 ? ['!', 'Falha no envio', 'failed']
-    : ack === 0 ? ['◷', 'Enviando', 'pending']
-    : ack >= 3 ? ['✓✓', 'Lida', 'read']
-    : ack === 2 ? ['✓✓', 'Entregue', 'delivered']
-    : ['✓', 'Enviada', 'sent'];
-  element.textContent = icon;
+  const [icon, label, variant] = ack === -1 ? ['alert', 'Falha no envio', 'failed']
+    : ack === 0 ? ['clock', 'Enviando', 'pending']
+    : ack >= 3 ? ['check-check', 'Lida', 'read']
+    : ack === 2 ? ['check-check', 'Entregue', 'delivered']
+    : ['check', 'Enviada', 'sent'];
+  element.innerHTML = iconHtml(icon);
   element.title = label;
   element.setAttribute('aria-label', label);
   element.className = `message-status ${variant}`;
+}
+function messageTime(timestamp) {
+  return timestamp ? new Date(timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
 }
 function isNearBottom() {
   return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 120;
 }
 function createMessageRow(message) {
-  const time = timeLabel(message.timestamp);
+  const time = messageTime(message.timestamp);
   const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
   let attachment = '';
   if (mediaUrl && message.isGif) attachment = `<video class="inline-video inline-gif" src="${mediaUrl}" autoplay loop muted playsinline></video>`;
@@ -442,10 +461,10 @@ function createMessageRow(message) {
   else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></a>`;
   else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
   else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
-  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">📎 ${escapeHtml(message.filename || 'Abrir ou baixar documento')}</a>`;
-  else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">📎 Abrir mídia (${escapeHtml(message.type || 'arquivo')})</a>`;
+  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">${iconHtml('file')}<span>${escapeHtml(message.filename || 'Abrir ou baixar documento')}</span></a>`;
+  else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">${iconHtml('file')}<span>Abrir mídia (${escapeHtml(message.type || 'arquivo')})</span></a>`;
   const caption = message.type === 'document' && message.body === message.filename ? '' : message.body;
-  const content = `${attachment}${caption ? `${attachment ? '<br>' : ''}${escapeHtml(caption)}` : (!attachment ? `<span class="message-media">${escapeHtml(messageTypeLabel(message.type))}</span>` : '')}`;
+  const text = caption ? `<span class="message-text">${escapeHtml(caption)}</span>` : (!attachment ? `<span class="message-text message-system">${escapeHtml(messageTypeLabel(message.type))}</span>` : '');
   const quote = message.replyPreview || message.quotedMessage;
   const quoteText = quote ? (quote.body || (quote.hasMedia ? messagePreview(quote) : 'Mensagem')) : '';
   const quoteHtml = quote ? `<div class="quoted-message"><strong>${escapeHtml(quote.fromMe ? 'Você' : (quote.author || 'Mensagem citada'))}</strong><span>${escapeHtml(quoteText)}</span></div>` : '';
@@ -453,11 +472,16 @@ function createMessageRow(message) {
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
   if (message.id) row.dataset.messageId = message.id;
   row.dataset.timestamp = String(message.timestamp || '');
-  const senderAvatarId = !message.fromMe && activeChat?.isGroup ? message.authorId : '';
-  const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
+  // Em grupos, as mensagens de outras pessoas levam avatar e nome; seguidas da mesma pessoa, só o balão.
+  const inGroup = !message.fromMe && activeChat?.isGroup;
+  const senderId = message.fromMe ? 'me' : (message.authorId || 'them');
+  row.dataset.sender = senderId;
+  const senderName = message.fromMe ? 'Você' : inGroup
     ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\d+$/, '') : 'Participante'))
     : (message.author || activeChat?.name || '');
-  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(initials(message.fromMe ? (myName || 'Você') : senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</div></div>`;
+  const avatar = inGroup ? `<span class="avatar avatar-sm ${toneFor(senderId)} ${message.authorId ? 'profile-picture-slot' : ''}" ${message.authorId ? `data-profile-id="${escapeHtml(message.authorId)}"` : ''} aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(senderName))}</span></span>` : '';
+  const name = inGroup ? `<span class="sender-name ${toneFor(senderId)}">${escapeHtml(senderName)}</span>` : '';
+  row.innerHTML = `${avatar}<div class="message-content"><div class="message-bubble">${name}${quoteHtml}${attachment}<div class="message-body">${text}<span class="message-meta">${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</span></div></div></div><div class="message-actions"><button class="icon-button reply-message-button" type="button" title="Responder" aria-label="Responder a esta mensagem">${iconHtml('reply')}</button></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
   if (message.fromMe) {
     const ack = mergeAck(messageAcks.get(message.id), message.ack);
@@ -469,20 +493,26 @@ function createMessageRow(message) {
 function queueRowProfilePictures(root) {
   root.querySelectorAll('.message-row .profile-picture-slot').forEach((slot) => queueProfilePicture(slot.dataset.profileId));
 }
-// Recria os separadores de dia a partir das mensagens exibidas (vale para histórico e tempo real).
+const GROUP_WINDOW_SECONDS = 5 * 60;
+// Recria os separadores de dia e o agrupamento a partir das mensagens exibidas (vale para histórico e tempo real).
 function refreshDayDividers() {
   els.messages.querySelectorAll('.day-divider').forEach((divider) => divider.remove());
   let priorDay = '';
+  let prior = null;
   els.messages.querySelectorAll('.message-row').forEach((row) => {
     const timestamp = Number(row.dataset.timestamp);
-    if (!timestamp) return;
-    const day = dayLabel(timestamp);
-    if (day === priorDay) return;
-    const divider = document.createElement('div');
-    divider.className = 'day-divider';
-    divider.textContent = day;
-    row.before(divider);
-    priorDay = day;
+    const day = timestamp ? dayLabel(timestamp) : priorDay;
+    if (day !== priorDay) {
+      const divider = document.createElement('div');
+      divider.className = 'day-divider';
+      divider.innerHTML = `<span>${escapeHtml(day)}</span>`;
+      row.before(divider);
+      priorDay = day;
+      prior = null;
+    }
+    const continued = Boolean(prior) && prior.sender === row.dataset.sender && timestamp - prior.timestamp < GROUP_WINDOW_SECONDS;
+    row.classList.toggle('continued', continued);
+    prior = { sender: row.dataset.sender, timestamp };
   });
 }
 function appendMessage(message) {
@@ -542,15 +572,18 @@ async function openChat(id) {
   clearReplyTarget();
   els.name.textContent = chat.name;
   updateMuteButton();
-  els.meta.textContent = chat.isGroup ? `Grupo · ${chat.number}` : chat.number;
+  els.meta.textContent = chat.isGroup ? 'Grupo' : chat.number;
+  els.input.placeholder = `Mensagem para ${chat.name}`;
   els.avatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>`;
   els.avatar.dataset.profileId = chat.id;
-  els.avatar.classList.add('profile-picture-slot');
-  els.avatar.classList.toggle('group', chat.isGroup);
+  els.avatar.className = `avatar avatar-md profile-picture-slot ${toneFor(chat.id)} ${chat.isGroup ? 'group' : ''}`;
   queueProfilePicture(chat.id);
-  els.empty.classList.add('hidden'); els.thread.classList.remove('hidden'); els.conversation.classList.add('thread-open');
+  els.empty.classList.add('hidden'); els.thread.classList.remove('hidden');
+  // No celular a conversa ocupa a tela; o botão voltar do navegador (ou do Android) retorna à lista.
+  if (!els.app.classList.contains('thread-open')) history.pushState({ thread: true }, '');
+  els.app.classList.add('thread-open');
   renderChats();
-  els.messages.innerHTML = '<div class="messages-loading">Carregando mensagens…</div>';
+  els.messages.innerHTML = '<div class="list-note">Carregando mensagens…</div>';
   try {
     const page = await api(`/api/chats/${encodeURIComponent(id)}/messages?limit=${FIRST_PAGE_SIZE}`);
     if (activeChat?.id !== id) return;
@@ -572,20 +605,46 @@ async function openChat(id) {
     els.messages.scrollTop = els.messages.scrollHeight;
     chat.unreadCount = 0; renderChats();
     markChatSeen(id);
-  } catch (error) { if (activeChat?.id === id) els.messages.innerHTML = `<div class="messages-loading">${escapeHtml(error.message)}</div>`; }
-  els.input.focus();
+  } catch (error) { if (activeChat?.id === id) els.messages.innerHTML = `<div class="list-note">${escapeHtml(error.message)}</div>`; }
+  // No celular, focar a caixa abriria o teclado por cima das mensagens.
+  if (!isSinglePane()) els.input.focus();
 }
+function isSinglePane() { return window.matchMedia('(max-width: 760px)').matches; }
+// Volta para a lista (usado no celular). A conversa continua selecionada na barra lateral.
+function showChatList() {
+  els.app.classList.remove('thread-open');
+  els.chatList.querySelector('.chat-row.selected')?.focus();
+}
+$('backBtn').addEventListener('click', () => { if (history.state?.thread) history.back(); else showChatList(); });
+window.addEventListener('popstate', () => { if (els.app.classList.contains('thread-open')) showChatList(); });
 els.messages.addEventListener('scroll', () => { if (els.messages.scrollTop < 80) loadOlderMessages(); });
 els.search.addEventListener('input', renderChats);
 $('refreshBtn').addEventListener('click', loadChats);
-$('themeToggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-$('soundToggle').addEventListener('click', () => {
-  notificationSoundEnabled = !notificationSoundEnabled;
-  updateSoundToggle();
+document.querySelectorAll('.filter').forEach((button) => button.addEventListener('click', () => {
+  chatFilter = button.dataset.filter;
+  document.querySelectorAll('.filter').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+  renderChats();
+}));
+$('themeToggle').addEventListener('change', (event) => setTheme(event.currentTarget.checked ? 'dark' : 'light'));
+$('soundToggle').addEventListener('change', (event) => {
+  notificationSoundEnabled = event.currentTarget.checked;
   try { localStorage.setItem('wppapi-chat-sound', notificationSoundEnabled ? 'on' : 'off'); } catch {}
   if (notificationSoundEnabled) unlockNotificationAudio();
 });
-$('notificationSettingsBtn').addEventListener('click', () => $('notificationSettings').classList.toggle('hidden'));
+function setSettingsOpen(open) {
+  $('settingsMenu').classList.toggle('hidden', !open);
+  $('settingsBtn').setAttribute('aria-expanded', String(open));
+  if (open) updateNotificationSettings();
+}
+$('settingsBtn').addEventListener('click', () => setSettingsOpen($('settingsMenu').classList.contains('hidden')));
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#settingsMenu, #settingsBtn')) setSettingsOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || $('settingsMenu').classList.contains('hidden')) return;
+  setSettingsOpen(false);
+  $('settingsBtn').focus();
+});
 $('inAppNotificationsToggle').addEventListener('change', (event) => {
   inAppNotificationsEnabled = event.currentTarget.checked;
   try { localStorage.setItem('wppapi-chat-inapp', inAppNotificationsEnabled ? 'on' : 'off'); } catch {}
@@ -623,8 +682,7 @@ $('messageNotice').addEventListener('keydown', (event) => {
     if (chatId) openChat(chatId);
   }
 });
-$('messageNotice').tabIndex = 0;
-$('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar esta sessão do WhatsApp?')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
+$('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar o WhatsApp deste servidor? Para usar de novo, será preciso ler o QR code.')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
 $('sessionLogoutBtn').addEventListener('click', async () => {
   try { await api('/api/session/logout', { method: 'POST' }); } catch {}
   location.replace('/login.html');
@@ -661,14 +719,18 @@ async function sendClipboardMedia(file) {
   if (!activeChat) { showToast('Abra uma conversa antes de anexar uma mídia.'); return; }
   if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou a imagem deve ter até 7 MB.'); return; }
   if (!/^image\/(gif|png|jpeg|webp)$/.test(file.type) && file.type !== 'video/mp4') { showToast('Formato não suportado. Escolha um GIF, imagem ou vídeo MP4.'); return; }
+  const chatId = activeChat.id;
+  const quoted = replyTarget;
   try {
     showToast(file.type === 'image/gif' ? 'Enviando GIF…' : 'Enviando mídia…');
     const dataUrl = await readFileAsDataUrl(file);
     const [, data] = dataUrl.split(',');
     const payload = { data, mimetype: file.type, filename: file.name || (file.type === 'image/gif' ? 'animacao.gif' : 'imagem') };
-    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
-    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    appendMessage(sent); clearReplyTarget();
+    if (quoted?.id) payload.quotedMessageId = quoted.id;
+    const sent = await api(`/api/chats/${encodeURIComponent(chatId)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (quoted) sent.replyPreview = { id: quoted.id, body: messagePreview(quoted), fromMe: quoted.fromMe };
+    if (activeChat?.id === chatId) appendMessage(sent);
+    if (replyTarget === quoted) clearReplyTarget();
   } catch (error) { showToast(error.message); }
 }
 els.mediaInput.addEventListener('change', async () => {
@@ -677,9 +739,13 @@ els.mediaInput.addEventListener('change', async () => {
   await sendFiles(files);
 });
 els.composer.addEventListener('dragover', (event) => {
-  if ([...(event.dataTransfer?.items || [])].some((item) => item.kind === 'file')) event.preventDefault();
+  if (![...(event.dataTransfer?.items || [])].some((item) => item.kind === 'file')) return;
+  event.preventDefault();
+  els.composer.classList.add('dragging');
 });
+els.composer.addEventListener('dragleave', (event) => { if (!els.composer.contains(event.relatedTarget)) els.composer.classList.remove('dragging'); });
 els.composer.addEventListener('drop', async (event) => {
+  els.composer.classList.remove('dragging');
   const files = [...(event.dataTransfer?.files || [])];
   if (!files.length) return;
   event.preventDefault();
@@ -710,22 +776,11 @@ els.input.addEventListener('paste', async (event) => {
   const file = mediaItem?.getAsFile() || [...(event.clipboardData?.files || [])].find((item) => /^image\/(gif|png|jpeg|webp)$/.test(item.type));
   const otherFiles = file ? [] : [...(event.clipboardData?.files || [])];
   if (!file && otherFiles.length) { event.preventDefault(); await sendFiles(otherFiles); return; }
-  if (!file) return; // Texto, incluindo emojis do Win + ., continua sendo inserido normalmente.
+  if (!file) return; // Texto, incluindo emojis, continua sendo inserido normalmente.
   event.preventDefault();
-  if (!activeChat) { showToast('Abra uma conversa antes de colar uma mídia.'); return; }
-  if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou imagem deve ter até 7 MB.'); return; }
-  try {
-    showToast(file.type === 'image/gif' ? 'Enviando GIF…' : 'Enviando imagem…');
-    const dataUrl = await readFileAsDataUrl(file);
-    const [, data] = dataUrl.split(',');
-    const payload = { data, mimetype: file.type, filename: file.name || (file.type === 'image/gif' ? 'animacao.gif' : 'imagem') };
-    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
-    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    appendMessage(sent);
-    clearReplyTarget();
-  } catch (error) { showToast(error.message); }
+  await sendClipboardMedia(file);
 });
-els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = `${Math.min(els.input.scrollHeight, 100)}px`; });
+els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = `${Math.min(els.input.scrollHeight, 160)}px`; });
 els.composer.addEventListener('submit', async (event) => {
   event.preventDefault();
   const body = els.input.value.trim();

@@ -2,49 +2,156 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#464775" />
-  <title>WPPAPI | Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#10302a" />
+  <title>WPPAPI Chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/theme.js"></script>
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="rail">
-      <div class="brand-mark">W</div>
-      <button class="rail-item active" title="Chat"><span>▤</span><small>Chat</small></button>
-      <button class="rail-item" title="Atividade"><span>◉</span><small>Atividade</small></button>
-      <button class="rail-item" title="Contatos"><span>♙</span><small>Contatos</small></button>
-      <div class="rail-bottom"><button class="rail-item" id="logoutBtn" title="Desconectar o WhatsApp deste servidor"><span>⏻</span><small>WhatsApp</small></button><button class="rail-item hidden" id="sessionLogoutBtn" title="Sair desta interface (o WhatsApp continua conectado)"><span>⇥</span><small>Sair</small></button><div class="me-avatar" title="Você">?</div></div>
-    </aside>
+  <!-- Ícones baseados no Lucide (licença ISC, https://lucide.dev). -->
+  <svg class="icon-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-sticker" viewBox="0 0 24 24"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/><path d="M10 16s.8 1 2 1c1.3 0 2-1 2-1"/><path d="M8 12.5h.01"/><path d="M16 12.5h.01"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-check-check" viewBox="0 0 24 24"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+  </svg>
 
-    <aside class="chat-sidebar">
-      <header class="sidebar-header"><div><p class="eyebrow">WPPAPI</p><h1>Chat</h1></div><div class="header-actions"><button class="icon-button theme-toggle" id="themeToggle" type="button" title="Ativar modo escuro" aria-label="Ativar modo escuro" aria-pressed="false">☾</button><button class="icon-button sound-toggle" id="soundToggle" type="button" title="Desativar som das notificações" aria-label="Desativar som das notificações" aria-pressed="true">♪</button><button class="icon-button" id="notificationSettingsBtn" type="button" title="Configurar notificações" aria-label="Configurar notificações">♧</button><button class="icon-button" id="refreshBtn" title="Atualizar conversas">↻</button></div></header>
-      <div id="notificationSettings" class="notification-settings hidden"><strong>Notificações</strong><label><input id="inAppNotificationsToggle" type="checkbox" checked /> Aviso flutuante no chat</label><label><input id="desktopNotificationsToggle" type="checkbox" /> Notificação do Windows</label><small id="desktopNotificationHelp">O navegador pode pedir autorização para mostrar notificações.</small></div>
-      <label class="search-box"><span>⌕</span><input id="searchInput" placeholder="Pesquisar" autocomplete="off" /></label>
-      <div class="section-heading"><span>Recentes</span><button class="tiny-button" title="Mais opções">···</button></div>
-      <div id="chatList" class="chat-list"><div class="list-loading">Carregando conversas…</div></div>
-      <footer class="sidebar-footer"><span class="connection-dot" id="sidebarDot"></span><span id="sidebarStatus">Conectando ao WhatsApp</span></footer>
+  <div class="app" id="app">
+    <aside class="sidebar" aria-label="Conversas">
+      <header class="sidebar-top">
+        <div class="workspace">
+          <span class="workspace-mark" aria-hidden="true">W</span>
+          <div class="workspace-copy">
+            <strong>WPPAPI Chat</strong>
+            <span class="connection"><i class="connection-dot" id="sidebarDot"></i><span id="sidebarStatus">Conectando ao WhatsApp</span></span>
+          </div>
+        </div>
+        <button class="icon-button" id="refreshBtn" type="button" title="Atualizar conversas" aria-label="Atualizar conversas"><svg class="icon"><use href="#i-refresh"/></svg></button>
+      </header>
+
+      <label class="search">
+        <svg class="icon"><use href="#i-search"/></svg>
+        <input id="searchInput" type="search" placeholder="Buscar conversa" autocomplete="off" aria-label="Buscar conversa" />
+      </label>
+
+      <div class="filters" role="group" aria-label="Filtrar conversas">
+        <button class="filter" type="button" data-filter="all" aria-pressed="true">Todas</button>
+        <button class="filter" type="button" data-filter="unread" aria-pressed="false">Não lidas</button>
+        <button class="filter" type="button" data-filter="groups" aria-pressed="false">Grupos</button>
+      </div>
+
+      <div id="chatList" class="chat-list"><div class="list-note">Carregando conversas…</div></div>
+
+      <footer class="me">
+        <div class="me-avatar" aria-hidden="true">?</div>
+        <div class="me-copy"><strong id="meName">Você</strong><span>Conta conectada</span></div>
+        <button class="icon-button" id="settingsBtn" type="button" title="Configurações" aria-label="Configurações" aria-expanded="false" aria-controls="settingsMenu"><svg class="icon"><use href="#i-settings"/></svg></button>
+        <div id="settingsMenu" class="settings-menu hidden" role="dialog" aria-label="Configurações">
+          <section>
+            <h3>Aparência</h3>
+            <label class="switch-row"><span>Tema escuro</span><input id="themeToggle" type="checkbox" role="switch" /></label>
+          </section>
+          <section>
+            <h3>Notificações</h3>
+            <label class="switch-row"><span>Som de nova mensagem</span><input id="soundToggle" type="checkbox" role="switch" checked /></label>
+            <label class="switch-row"><span>Aviso dentro do chat</span><input id="inAppNotificationsToggle" type="checkbox" role="switch" checked /></label>
+            <label class="switch-row"><span>Notificação do sistema</span><input id="desktopNotificationsToggle" type="checkbox" role="switch" /></label>
+            <small id="desktopNotificationHelp">O navegador pode pedir autorização para mostrar notificações.</small>
+          </section>
+          <section class="menu-actions">
+            <button class="menu-action hidden" id="sessionLogoutBtn" type="button"><svg class="icon"><use href="#i-logout"/></svg>Sair desta interface</button>
+            <button class="menu-action danger" id="logoutBtn" type="button"><svg class="icon"><use href="#i-power"/></svg>Desconectar o WhatsApp</button>
+          </section>
+        </div>
+      </footer>
     </aside>
 
     <main class="conversation">
       <section id="emptyState" class="empty-state">
-        <div class="empty-illustration"><div class="bubble bubble-one">Olá! 👋</div><div class="bubble bubble-two">Tudo certo?</div><div class="chat-symbol">✉</div></div>
-        <h2>Suas conversas, em um só lugar</h2><p>Escolha uma conversa na lista para começar.</p>
-        <div class="prototype-note"><span>✦</span><div><strong>Prévia de teste</strong><small>As mensagens são enviadas pela sessão conectada do WhatsApp.</small></div></div>
+        <svg class="icon empty-icon" aria-hidden="true"><use href="#i-chat"/></svg>
+        <h2>Escolha uma conversa</h2>
+        <p>As mensagens são enviadas e recebidas pela conta do WhatsApp conectada a este servidor.</p>
       </section>
-      <section id="thread" class="thread hidden">
-        <header class="thread-header"><div class="person-avatar" id="threadAvatar">?</div><div class="person-title"><h2 id="threadName">Conversa</h2><p id="threadMeta">WhatsApp</p></div><div class="thread-actions"><button class="icon-button" id="muteChatBtn" type="button" title="Silenciar conversa" aria-label="Silenciar conversa" aria-pressed="false">♩</button><button class="icon-button" title="Pesquisar nesta conversa">⌕</button><button class="icon-button" title="Mais opções">···</button></div></header>
-        <div class="thread-banner"><span class="lock-icon">♧</span> As mensagens desta conversa são sincronizadas com o WhatsApp conectado.</div>
-        <div id="messages" class="messages"><div class="messages-loading">Carregando mensagens…</div></div>
-        <div id="replyBar" class="reply-bar hidden"><div class="reply-accent"></div><div class="reply-copy"><strong id="replyAuthor"></strong><span id="replyText"></span></div><button id="cancelReplyBtn" class="icon-button" type="button" title="Cancelar resposta">×</button></div>
-        <form id="composer" class="composer"><button id="stickerBtn" class="compose-tool sticker-tool" type="button" title="Enviar uma imagem como figurinha">▧</button><input id="stickerInput" type="file" accept="image/png,image/jpeg,image/webp" hidden /><button id="mediaBtn" class="compose-tool" type="button" title="Anexar arquivos (fotos, vídeos, áudios, GIFs ou documentos)">📎</button><input id="mediaInput" type="file" multiple hidden /><textarea id="messageInput" rows="1" placeholder="Digite uma mensagem ou use Win + . para emojis" autocomplete="off" spellcheck="true"></textarea><button class="send-button" type="submit" title="Enviar">➤</button><div class="composer-hint">Win + . para emojis · anexe ou arraste arquivos · Enter envia</div></form>
+
+      <section id="thread" class="thread hidden" aria-labelledby="threadName">
+        <header class="thread-header">
+          <button class="icon-button back-button" id="backBtn" type="button" title="Voltar para as conversas" aria-label="Voltar para as conversas"><svg class="icon"><use href="#i-back"/></svg></button>
+          <div class="avatar avatar-md" id="threadAvatar">?</div>
+          <div class="thread-title">
+            <h2 id="threadName">Conversa</h2>
+            <p id="threadMeta"></p>
+          </div>
+          <button class="icon-button" id="muteChatBtn" type="button" title="Silenciar conversa" aria-label="Silenciar conversa" aria-pressed="false"><svg class="icon"><use href="#i-bell"/></svg></button>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"><div class="list-note">Carregando mensagens…</div></div>
+
+        <div class="composer-area">
+          <div id="replyBar" class="reply-bar hidden">
+            <svg class="icon" aria-hidden="true"><use href="#i-reply"/></svg>
+            <div class="reply-copy"><strong id="replyAuthor"></strong><span id="replyText"></span></div>
+            <button id="cancelReplyBtn" class="icon-button" type="button" title="Cancelar resposta" aria-label="Cancelar resposta"><svg class="icon"><use href="#i-x"/></svg></button>
+          </div>
+          <form id="composer" class="composer">
+            <textarea id="messageInput" rows="1" placeholder="Escreva uma mensagem" autocomplete="off" spellcheck="true" aria-label="Mensagem"></textarea>
+            <div class="composer-tools">
+              <button id="mediaBtn" class="tool-button" type="button" title="Anexar fotos, vídeos, áudios ou documentos" aria-label="Anexar arquivos"><svg class="icon"><use href="#i-paperclip"/></svg></button>
+              <input id="mediaInput" type="file" multiple hidden />
+              <button id="stickerBtn" class="tool-button" type="button" title="Enviar uma imagem como figurinha" aria-label="Enviar figurinha"><svg class="icon"><use href="#i-sticker"/></svg></button>
+              <input id="stickerInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+              <span class="composer-hint">Enter envia, Shift + Enter quebra a linha. Arraste ou cole arquivos aqui.</span>
+              <button class="send-button" type="submit" title="Enviar" aria-label="Enviar"><svg class="icon"><use href="#i-send"/></svg></button>
+            </div>
+          </form>
+        </div>
       </section>
     </main>
   </div>
 
-  <div id="connectOverlay" class="overlay hidden"><div class="connect-card"><div class="connect-logo">W</div><p class="eyebrow">WPPAPI CHAT</p><h2 id="connectTitle">Conectando ao WhatsApp</h2><p id="connectText">Iniciando a conexão com o WhatsApp…</p><div id="qrWrap" class="qr-wrap hidden"><img id="qrImage" alt="QR code para conectar o WhatsApp" /><p>Abra o WhatsApp no celular → <strong>Aparelhos conectados</strong> → <strong>Conectar aparelho</strong>.</p></div><div id="connectSpinner" class="spinner"></div><div id="connectError" class="connect-error hidden"></div><button id="retryBtn" class="retry-button hidden">Tentar novamente</button><small class="session-note">A sessão fica salva neste servidor até você sair.</small></div></div>
-  <div id="messageNotice" class="message-notice hidden" role="status" aria-live="polite"><span class="notice-dot"></span><div class="notice-copy"><strong id="noticeTitle">Nova mensagem</strong><span id="noticeBody"></span></div><button id="dismissNotice" type="button" aria-label="Fechar notificação">×</button></div>
-  <div id="toast" class="toast"></div>
+  <div id="connectOverlay" class="overlay hidden">
+    <div class="connect-card" role="dialog" aria-modal="true" aria-labelledby="connectTitle">
+      <span class="workspace-mark workspace-mark-lg" aria-hidden="true">W</span>
+      <h2 id="connectTitle">Conectando ao WhatsApp</h2>
+      <p id="connectText">Iniciando a conexão com o WhatsApp…</p>
+      <div id="qrWrap" class="qr-wrap hidden">
+        <img id="qrImage" alt="QR code para conectar o WhatsApp" />
+        <ol class="qr-steps">
+          <li>Abra o WhatsApp no celular.</li>
+          <li>Toque em <strong>Aparelhos conectados</strong> e depois em <strong>Conectar aparelho</strong>.</li>
+          <li>Aponte a câmera para este código.</li>
+        </ol>
+      </div>
+      <div id="connectSpinner" class="spinner" role="status" aria-label="Carregando"></div>
+      <div id="connectError" class="form-error hidden" role="alert"></div>
+      <button id="retryBtn" class="primary-button hidden" type="button">Tentar novamente</button>
+      <small class="card-note">A sessão fica salva neste servidor até você desconectar.</small>
+    </div>
+  </div>
+
+  <div id="messageNotice" class="message-notice hidden" role="status" aria-live="polite" tabindex="0">
+    <div class="notice-copy"><strong id="noticeTitle">Nova mensagem</strong><span id="noticeBody"></span></div>
+    <button id="dismissNotice" class="icon-button" type="button" aria-label="Fechar aviso"><svg class="icon"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>
 </body>
