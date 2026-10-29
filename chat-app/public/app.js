@@ -885,7 +885,87 @@ $('retryBtn').addEventListener('click', async () => {
   try { await api('/api/restart', { method: 'POST' }); } catch (error) { showToast(error.message); els.retry.classList.remove('hidden'); }
 });
 $('cancelReplyBtn').addEventListener('click', clearReplyTarget);
-$('stickerBtn').addEventListener('click', () => els.stickerInput.click());
+// Painel de figurinhas: as salvas no WhatsApp (favoritas) e a opção de enviar uma imagem como figurinha.
+const stickerPanel = { loaded: false, loading: false, stickers: [], diagnostics: null };
+function stickerImageUrl(id) { return `/api/stickers/saved/${encodeURIComponent(id)}/image`; }
+function setStickerPanelOpen(open) {
+  $('stickerPanel').classList.toggle('hidden', !open);
+  $('stickerBtn').setAttribute('aria-expanded', String(open));
+  if (open) loadSavedStickers();
+}
+async function loadSavedStickers(force = false) {
+  if (stickerPanel.loading || (stickerPanel.loaded && !force)) return;
+  stickerPanel.loading = true;
+  $('stickerGrid').innerHTML = '<div class="sticker-note">Buscando suas figurinhas salvas…</div>';
+  try {
+    const data = await api('/api/stickers/saved');
+    stickerPanel.stickers = data.stickers || [];
+    stickerPanel.diagnostics = data.diagnostics || null;
+  } catch (error) {
+    stickerPanel.stickers = [];
+    stickerPanel.diagnostics = { errors: [error.message] };
+  } finally {
+    stickerPanel.loading = false;
+    stickerPanel.loaded = true;
+  }
+  renderSavedStickers();
+}
+function renderSavedStickers() {
+  const grid = $('stickerGrid');
+  $('stickerDiagBtn').classList.toggle('hidden', stickerPanel.stickers.length > 0);
+  if (!stickerPanel.stickers.length) {
+    grid.innerHTML = '<div class="sticker-note">Não encontramos figurinhas salvas nesta conta. Se você tem favoritas no WhatsApp, copie o diagnóstico para investigar.</div>';
+    return;
+  }
+  grid.innerHTML = stickerPanel.stickers.map((sticker) => `<button class="sticker-option" type="button" data-id="${escapeHtml(sticker.id)}" title="Enviar figurinha" aria-label="Enviar figurinha${sticker.isAnimated ? ' animada' : ''}"><img src="${stickerImageUrl(sticker.id)}" alt="" loading="lazy" /></button>`).join('');
+  // Se as imagens não carregam, o problema é no download: mostra o diagnóstico também.
+  grid.querySelectorAll('img').forEach((img) => img.addEventListener('error', () => {
+    img.closest('.sticker-option').classList.add('broken');
+    $('stickerDiagBtn').classList.remove('hidden');
+  }, { once: true }));
+}
+async function sendSavedSticker(id) {
+  if (!activeChat) return;
+  const chatId = activeChat.id;
+  const quoted = replyTarget;
+  setStickerPanelOpen(false);
+  try {
+    showToast('Enviando figurinha…');
+    const sent = await api(`/api/chats/${encodeURIComponent(chatId)}/stickers/saved/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(quoted?.id ? { quotedMessageId: quoted.id } : {}) });
+    if (quoted) sent.replyPreview = { id: quoted.id, body: messagePreview(quoted), fromMe: quoted.fromMe };
+    if (activeChat?.id === chatId) appendMessage(sent);
+    if (replyTarget === quoted) clearReplyTarget();
+  } catch (error) { showToast(error.message); }
+}
+async function copyStickerDiagnostics() {
+  const report = { diagnostics: stickerPanel.diagnostics, stickers: stickerPanel.stickers.length, browser: navigator.userAgent };
+  const first = stickerPanel.stickers[0];
+  if (first) {
+    try {
+      const response = await fetch(stickerImageUrl(first.id));
+      report.firstImage = response.ok ? `ok (${response.headers.get('content-type')})` : (await response.json().catch(() => ({}))).error || `HTTP ${response.status}`;
+    } catch (error) { report.firstImage = error.message; }
+  }
+  const text = JSON.stringify(report, null, 2);
+  try { await navigator.clipboard.writeText(text); showToast('Diagnóstico copiado.'); }
+  catch { window.prompt('Copie o diagnóstico:', text); }
+}
+$('stickerBtn').addEventListener('click', () => setStickerPanelOpen($('stickerPanel').classList.contains('hidden')));
+$('stickerRefreshBtn').addEventListener('click', () => loadSavedStickers(true));
+$('stickerUploadBtn').addEventListener('click', () => { setStickerPanelOpen(false); els.stickerInput.click(); });
+$('stickerDiagBtn').addEventListener('click', copyStickerDiagnostics);
+$('stickerGrid').addEventListener('click', (event) => {
+  const option = event.target.closest('.sticker-option');
+  if (option && !option.classList.contains('broken')) sendSavedSticker(option.dataset.id);
+});
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#stickerPanel, #stickerBtn')) setStickerPanelOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || $('stickerPanel').classList.contains('hidden')) return;
+  setStickerPanelOpen(false);
+  $('stickerBtn').focus();
+});
 $('mediaBtn').addEventListener('click', () => els.mediaInput.click());
 async function sendFile(file) {
   if (!activeChat) { showToast('Abra uma conversa antes de anexar um arquivo.'); return; }

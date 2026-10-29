@@ -36,7 +36,11 @@ Ao abrir uma conversa são carregadas as 80 mensagens mais recentes; role até o
 
 O botão de clipe envia um ou vários arquivos de uma vez (também é possível arrastar ou colar arquivos na caixa de mensagem). Fotos JPEG/PNG/WebP, vídeos MP4 e áudios MP3/OGG/M4A aparecem direto na conversa; GIFs viram animações; os demais formatos (PDF, planilhas, ZIP etc.) vão como documento. O limite padrão é 32 MB por arquivo, ajustável pela variável `MAX_UPLOAD_MB`. Algumas fotos podem não aparecer se as configurações de privacidade do contato impedirem o acesso; nesse caso, a interface mantém as iniciais.
 
-O botão de figurinha permite selecionar PNG, JPEG ou WebP (até 5 MB) e envia a imagem como figurinha. Passe o mouse sobre uma mensagem (no celular, toque na seta ao lado dela) e use **Responder** para selecioná-la como citação; a resposta pode ser uma mensagem de texto ou uma figurinha.
+O botão de figurinha abre o painel com as **figurinhas salvas** (favoritas) da sua conta do WhatsApp: um clique envia a figurinha na conversa aberta. No mesmo painel, **Enviar uma imagem como figurinha** permite selecionar PNG, JPEG ou WebP (até 5 MB) e envia a imagem como figurinha.
+
+A whatsapp-web.js não tem função para figurinhas salvas, então o servidor procura a lista dentro do próprio WhatsApp Web (`lib/stickers.js`). Como os nomes internos do WhatsApp mudam entre versões, a busca pode não achar a lista ou não conseguir baixar as imagens. Nesse caso o painel mostra **Copiar diagnóstico**, que copia um relatório com os módulos encontrados, a quantidade de figurinhas e o erro do download (sem chaves de mídia nem conteúdo das figurinhas), para ajustar a busca.
+
+Imagens e vídeos abrem por cima da conversa, com o fundo escurecido: fecha com Esc, no X ou clicando fora, tem botão de baixar e setas para passar pelas mídias da conversa. Vídeos aparecem na conversa com a miniatura enviada pelo WhatsApp, o botão de play e a duração. Passe o mouse sobre uma mensagem (no celular, toque na seta ao lado dela) e use **Responder** para selecioná-la como citação; a resposta pode ser uma mensagem de texto ou uma figurinha.
 
 O menu de configurações alterna entre tema claro e escuro e guarda a escolha neste navegador; sem escolha salva, a interface segue o tema do sistema. Mensagens novas em outras conversas mostram um aviso discreto e atualizam o contador de não lidas; o aviso fecha sozinho e não solicita permissão do navegador.
 
@@ -52,6 +56,7 @@ No mesmo menu, **Som de nova mensagem** liga ou silencia o toque curto das notif
 | `lib/auth.js` | Login, sessões, limite de tentativas e verificação de origem |
 | `lib/messages.js` | Conversão das mensagens para a interface e paginação do histórico |
 | `lib/media.js` | Validade das fotos de perfil, pedidos parciais de mídia e tipos de arquivo |
+| `lib/stickers.js` | Figurinhas salvas: busca no WhatsApp Web, download e diagnóstico |
 | `lib/cache.js` | Cache em memória com validade e limite de tamanho |
 | `public/` | Interface (HTML, CSS e JavaScript sem etapa de build) |
 

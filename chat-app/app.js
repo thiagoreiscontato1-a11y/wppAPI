@@ -11,6 +11,7 @@ const { createCache } = require('./lib/cache');
 const { profilePictureExpiry, parseByteRange, mediaResponseHeaders, isPlayableUpload } = require('./lib/media');
 const { serializeMessage, fetchMessagesPage, createMessageSerializer } = require('./lib/messages');
 const { createWhatsAppSession } = require('./lib/whatsapp');
+const { createSavedStickers } = require('./lib/stickers');
 
 const execFileAsync = promisify(execFile);
 const STICKER_MAX_BYTES = 5 * 1024 * 1024;
@@ -32,6 +33,7 @@ function createChatServer({
   ffmpegPath = 'ffmpeg',
   logger = console,
   sessionOptions = {},
+  savedStickers: savedStickersOverride,
 }) {
   const app = express();
   const server = http.createServer(app);
@@ -44,6 +46,7 @@ function createChatServer({
   const profilePictureRequests = new Map();
   const contactNames = createCache({ maxEntries: 5000, ttlMs: 60 * 60 * 1000 });
   const mediaCache = createCache({ maxBytes: MEDIA_CACHE_MAX_BYTES, sizeOf: (entry) => entry.buffer.length, ttlMs: 10 * 60 * 1000 });
+  const stickerCache = createCache({ maxBytes: 16 * 1024 * 1024, sizeOf: (entry) => entry.buffer.length, ttlMs: 60 * 60 * 1000 });
   const mediaRequests = new Map();
   const serializeMessageForChat = createMessageSerializer({ getClient: () => session.client, contactNames });
 
@@ -63,6 +66,7 @@ function createChatServer({
     profilePictures.clear();
     contactNames.clear();
     mediaCache.clear();
+    stickerCache.clear();
   });
 
   // Navegadores pedem vídeos e áudios em pedaços; guarda as mídias recentes para não baixar de novo a cada pedaço.
@@ -242,6 +246,37 @@ function createChatServer({
       res.status(201).json(serializeMessage(sent));
     } catch (error) {
       logger.error('Falha ao enviar figurinha:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Figurinhas salvas no WhatsApp (favoritas): lista com diagnóstico, imagem e envio.
+  const savedStickers = savedStickersOverride || createSavedStickers({ getClient: () => session.client, cache: stickerCache });
+  app.get('/api/stickers/saved', requireReady, async (_req, res) => {
+    try { res.json(await savedStickers.list()); }
+    catch (error) {
+      logger.error('Falha ao buscar figurinhas salvas:', error);
+      res.status(500).json({ error: error.message, stickers: [], diagnostics: { errors: [error.message] } });
+    }
+  });
+  app.get('/api/stickers/saved/:id/image', requireReady, async (req, res) => {
+    try {
+      const sticker = await savedStickers.image(req.params.id);
+      res.set({ 'Content-Type': sticker.mimetype, 'Cache-Control': 'private, max-age=3600', 'Content-Security-Policy': "default-src 'none'; sandbox" });
+      res.send(sticker.buffer);
+    } catch (error) { res.status(502).json({ error: error.message }); }
+  });
+  app.post('/api/chats/:id/stickers/saved/:stickerId', requireReady, async (req, res) => {
+    const quotedMessageId = String(req.body?.quotedMessageId || '').trim();
+    try {
+      const sticker = await savedStickers.image(req.params.stickerId);
+      const media = new MessageMedia(sticker.mimetype, sticker.data, 'figurinha.webp');
+      const options = { sendMediaAsSticker: true };
+      if (quotedMessageId) options.quotedMessageId = quotedMessageId;
+      const sent = await session.client.sendMessage(req.params.id, media, options);
+      res.status(201).json(serializeMessage(sent));
+    } catch (error) {
+      logger.error('Falha ao enviar figurinha salva:', error);
       res.status(500).json({ error: error.message });
     }
   });

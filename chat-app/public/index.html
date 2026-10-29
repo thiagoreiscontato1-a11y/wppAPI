@@ -113,6 +113,17 @@
         <div id="messages" class="messages" aria-live="polite"><div class="list-note">Carregando mensagens…</div></div>
 
         <div class="composer-area">
+          <div id="stickerPanel" class="sticker-panel hidden" role="dialog" aria-label="Figurinhas">
+            <header class="sticker-panel-header">
+              <strong>Figurinhas salvas</strong>
+              <button id="stickerRefreshBtn" class="icon-button" type="button" title="Atualizar figurinhas" aria-label="Atualizar figurinhas"><svg class="icon"><use href="#i-refresh"/></svg></button>
+            </header>
+            <div id="stickerGrid" class="sticker-grid"></div>
+            <footer class="sticker-panel-footer">
+              <button id="stickerUploadBtn" class="menu-action" type="button"><svg class="icon"><use href="#i-sticker"/></svg>Enviar uma imagem como figurinha</button>
+              <button id="stickerDiagBtn" class="link-button hidden" type="button">Copiar diagnóstico</button>
+            </footer>
+          </div>
           <div id="replyBar" class="reply-bar hidden">
             <svg class="icon" aria-hidden="true"><use href="#i-reply"/></svg>
             <div class="reply-copy"><strong id="replyAuthor"></strong><span id="replyText"></span></div>
@@ -123,7 +134,7 @@
             <div class="composer-tools">
               <button id="mediaBtn" class="tool-button" type="button" title="Anexar fotos, vídeos, áudios ou documentos" aria-label="Anexar arquivos"><svg class="icon"><use href="#i-paperclip"/></svg></button>
               <input id="mediaInput" type="file" multiple hidden />
-              <button id="stickerBtn" class="tool-button" type="button" title="Enviar uma imagem como figurinha" aria-label="Enviar figurinha"><svg class="icon"><use href="#i-sticker"/></svg></button>
+              <button id="stickerBtn" class="tool-button" type="button" title="Figurinhas" aria-label="Figurinhas" aria-expanded="false" aria-controls="stickerPanel"><svg class="icon"><use href="#i-sticker"/></svg></button>
               <input id="stickerInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
               <span class="composer-hint">Enter envia, Shift + Enter quebra a linha. Arraste ou cole arquivos aqui.</span>
               <button class="send-button" type="submit" title="Enviar" aria-label="Enviar"><svg class="icon"><use href="#i-send"/></svg></button>
