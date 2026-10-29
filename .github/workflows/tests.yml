@@ -26,3 +26,9 @@ jobs:
 
             - name: Run Eslint
               run: npm run lint
+
+            - name: Install chat-app dependencies
+              run: npm --prefix chat-app install
+
+            - name: Run chat-app tests
+              run: npm --prefix chat-app test

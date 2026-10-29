@@ -64,4 +64,20 @@ export default [
         ],
     },
     configEslintConfigPrettier,
+    {
+        // chat-app tem estilo próprio (linhas compactas), então não passa pelo Prettier.
+        name: 'wppapi/chat-app',
+        files: ['chat-app/**/*.js'],
+        rules: {
+            'prettier/prettier': 'off',
+            'no-empty': ['error', { allowEmptyCatch: true }],
+        },
+    },
+    {
+        name: 'wppapi/chat-app/browser',
+        files: ['chat-app/public/**/*.js'],
+        languageOptions: {
+            globals: { io: 'readonly' },
+        },
+    },
 ];
