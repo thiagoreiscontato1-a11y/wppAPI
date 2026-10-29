@@ -41,3 +41,36 @@ O botão de figurinha permite selecionar PNG, JPEG ou WebP (até 5 MB) e envia a
 O seletor no cabeçalho alterna entre tema claro e escuro e guarda a escolha neste navegador. Mensagens novas em outras conversas mostram um aviso discreto e atualizam o contador de não lidas; o aviso fecha sozinho e não solicita permissão do navegador.
 
 O controle de som ao lado do tema liga ou silencia o toque curto das notificações. O navegador libera áudio após a primeira interação do usuário com a página; o som é limitado a um toque a cada 2,2 segundos.
+
+## Estrutura do código e testes
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `server.js` | Ponto de entrada: lê as variáveis de ambiente, carrega a `whatsapp-web.js` e inicia o servidor |
+| `app.js` | Monta o servidor (Express + Socket.IO), a autenticação e as rotas da API |
+| `lib/whatsapp.js` | Conexão com o WhatsApp: inicia, reconecta quando a sessão cai e repassa os eventos |
+| `lib/auth.js` | Login, sessões, limite de tentativas e verificação de origem |
+| `lib/messages.js` | Conversão das mensagens para a interface e paginação do histórico |
+| `lib/media.js` | Validade das fotos de perfil, pedidos parciais de mídia e tipos de arquivo |
+| `lib/cache.js` | Cache em memória com validade e limite de tamanho |
+| `public/` | Interface (HTML, CSS e JavaScript sem etapa de build) |
+
+Os testes usam um cliente WhatsApp falso (`test/helpers/fake-whatsapp.js`), então rodam sem celular nem navegador:
+
+```bash
+npm --prefix chat-app test
+```
+
+Eles também rodam no GitHub Actions a cada push, junto com o ESLint (`npm run lint` na raiz).
+
+## Atualizar a whatsapp-web.js
+
+A biblioteca na raiz do repositório é uma cópia da [whatsapp-web.js original](https://github.com/wwebjs/whatsapp-web.js); o commit incorporado fica em `.upstream-version`. Toda segunda-feira o workflow **Upstream check** abre uma issue se o original tiver mudanças novas. Para trazê-las:
+
+```bash
+bash tools/sync-upstream.sh          # aplica as mudanças (use --check para só verificar)
+npm install && npm --prefix chat-app test
+git commit -m "Atualiza whatsapp-web.js"
+```
+
+O script faz merge de 3 vias: ajustes locais na biblioteca são preservados, e eventuais conflitos ficam marcados nos arquivos.

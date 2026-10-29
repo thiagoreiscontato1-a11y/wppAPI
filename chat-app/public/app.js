@@ -30,6 +30,9 @@ let maxUploadBytes = 32 * 1024 * 1024;
 const profilePictureQueue = [];
 let profilePictureActive = 0;
 let profileObserver;
+let renderChatsFrame = 0;
+const chatRows = new Map();
+const PROFILE_PICTURE_CACHE_MAX = 2000;
 let toastTimer;
 let noticeTimer;
 let notificationAudioContext = null;
@@ -131,20 +134,28 @@ function updateMuteButton() {
 function initials(text = '?') { return text.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'; }
 function escapeHtml(text = '') { return String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 function showToast(message) { const el = $('toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600); }
+function applyPictureToSlot(slot, url) {
+  const chatId = slot.dataset.profileId;
+  slot.querySelector('img')?.remove();
+  slot.classList.remove('has-photo');
+  if (!url) return;
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = '';
+  img.loading = 'lazy';
+  img.onload = () => slot.classList.add('has-photo');
+  img.onerror = () => { img.remove(); refreshExpiredProfilePicture(chatId); };
+  slot.appendChild(img);
+}
 function applyProfilePicture(chatId, url) {
   document.querySelectorAll('.profile-picture-slot').forEach((slot) => {
-    if (slot.dataset.profileId !== chatId) return;
-    slot.querySelector('img')?.remove();
-    slot.classList.remove('has-photo');
-    if (!url) return;
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = '';
-    img.loading = 'lazy';
-    img.onload = () => slot.classList.add('has-photo');
-    img.onerror = () => { img.remove(); refreshExpiredProfilePicture(chatId); };
-    slot.appendChild(img);
+    if (slot.dataset.profileId === chatId) applyPictureToSlot(slot, url);
   });
+}
+function rememberProfilePicture(chatId, url) {
+  profilePictureCache.delete(chatId);
+  profilePictureCache.set(chatId, { url, at: Date.now() });
+  if (profilePictureCache.size > PROFILE_PICTURE_CACHE_MAX) profilePictureCache.delete(profilePictureCache.keys().next().value);
 }
 function cachedProfilePicture(chatId) {
   const cached = profilePictureCache.get(chatId);
@@ -173,8 +184,8 @@ function processProfilePictureQueue() {
     const refresh = profilePictureRefresh.delete(chatId);
     profilePictureActive += 1;
     api(`/api/chats/${encodeURIComponent(chatId)}/profile-picture${refresh ? '?refresh=1' : ''}`)
-      .then(({ url }) => { profilePictureCache.set(chatId, { url: url || null, at: Date.now() }); applyProfilePicture(chatId, url || null); })
-      .catch(() => { profilePictureCache.set(chatId, { url: null, at: Date.now() }); })
+      .then(({ url }) => { rememberProfilePicture(chatId, url || null); applyProfilePicture(chatId, url || null); })
+      .catch(() => { rememberProfilePicture(chatId, null); })
       .finally(() => { profilePicturePending.delete(chatId); profilePictureActive -= 1; processProfilePictureQueue(); });
   }
 }
@@ -281,8 +292,8 @@ socket.on('message', ({ chatId, message }) => {
   if (!message.fromMe && !isVisibleConversation) chat.unreadCount = (chat.unreadCount || 0) + 1;
   if (!message.fromMe && isVisibleConversation) markChatSeen(chatId);
   chat.lastMessage = messagePreview(message);
-  chat.timestamp = message.timestamp;
-  renderChats();
+  chat.timestamp = Math.max(chat.timestamp || 0, message.timestamp || 0);
+  scheduleRenderChats();
   if (!isVisibleConversation) notifyIncomingMessage(chat, message);
 });
 socket.on('ack', ({ id, ack }) => {
@@ -314,34 +325,82 @@ function timeLabel(timestamp) {
   const now = new Date();
   return date.toDateString() === now.toDateString() ? date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
+// A lista reaproveita uma linha por conversa e só redesenha o que mudou; assim uma mensagem
+// nova atualiza uma linha e a move para o topo, em vez de recriar a lista inteira.
+function chatAvatarHtml(chat) {
+  return `<div class="chat-avatar profile-picture-slot ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>${!chat.isGroup ? '<i class="presence"></i>' : ''}</div>`;
+}
+function chatCopyHtml(chat) {
+  return `<div class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></div><div class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${chat.unreadCount ? `<span class="unread">${chat.unreadCount}</span>` : ''}</div>`;
+}
+function chatRowFor(chat) {
+  let entry = chatRows.get(chat.id);
+  if (!entry) {
+    const row = document.createElement('div');
+    row.className = 'chat-row';
+    row.dataset.id = chat.id;
+    row.innerHTML = '<div class="chat-copy"></div>';
+    row.addEventListener('click', () => openChat(chat.id));
+    entry = { row, avatarHtml: '', copyHtml: '' };
+    chatRows.set(chat.id, entry);
+  }
+  const avatarHtml = chatAvatarHtml(chat);
+  if (entry.avatarHtml !== avatarHtml) {
+    entry.row.querySelector('.chat-avatar')?.remove();
+    entry.row.insertAdjacentHTML('afterbegin', avatarHtml);
+    entry.avatarHtml = avatarHtml;
+    const slot = entry.row.querySelector('.chat-avatar');
+    const cached = cachedProfilePicture(chat.id);
+    if (cached !== undefined) applyPictureToSlot(slot, cached);
+    else profileObserver.observe(slot);
+  }
+  const copyHtml = chatCopyHtml(chat);
+  if (entry.copyHtml !== copyHtml) {
+    entry.row.querySelector('.chat-copy').innerHTML = copyHtml;
+    entry.copyHtml = copyHtml;
+  }
+  entry.row.classList.toggle('selected', activeChat?.id === chat.id);
+  return entry.row;
+}
 function renderChats() {
-  const query = els.search.value.trim().toLocaleLowerCase('pt-BR');
-  const shown = chats.filter((chat) => `${chat.name} ${chat.number} ${chat.lastMessage}`.toLocaleLowerCase('pt-BR').includes(query));
-  if (!shown.length) { els.chatList.innerHTML = `<div class="list-loading">${chats.length ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa encontrada.'}</div>`; return; }
-  els.chatList.innerHTML = shown.map((chat) => `<div class="chat-row ${activeChat?.id === chat.id ? 'selected' : ''}" data-id="${escapeHtml(chat.id)}">
-    <div class="chat-avatar profile-picture-slot ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>${!chat.isGroup ? '<i class="presence"></i>' : ''}</div>
-    <div class="chat-copy"><div class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></div><div class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${chat.unreadCount ? `<span class="unread">${chat.unreadCount}</span>` : ''}</div></div>
-  </div>`).join('');
-  els.chatList.querySelectorAll('.chat-row').forEach((row) => row.addEventListener('click', () => openChat(row.dataset.id)));
-  profileObserver?.disconnect();
-  profileObserver = new IntersectionObserver((items) => {
+  cancelAnimationFrame(renderChatsFrame);
+  renderChatsFrame = 0;
+  profileObserver ||= new IntersectionObserver((items) => {
     items.forEach((item) => {
       if (!item.isIntersecting) return;
       profileObserver.unobserve(item.target);
       queueProfilePicture(item.target.dataset.profileId);
     });
   }, { root: els.chatList, rootMargin: '80px' });
-  els.chatList.querySelectorAll('.profile-picture-slot').forEach((slot) => {
-    const cached = cachedProfilePicture(slot.dataset.profileId);
-    if (cached !== undefined) applyProfilePicture(slot.dataset.profileId, cached);
-    else profileObserver.observe(slot);
+  const query = els.search.value.trim().toLocaleLowerCase('pt-BR');
+  const shown = chats
+    .filter((chat) => `${chat.name} ${chat.number} ${chat.lastMessage}`.toLocaleLowerCase('pt-BR').includes(query))
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  if (!shown.length) { els.chatList.innerHTML = '<div class="list-loading">Nenhuma conversa encontrada.</div>'; return; }
+  // Percorre a lista na ordem desejada, movendo só as linhas que estão fora do lugar.
+  let cursor = els.chatList.firstElementChild;
+  shown.forEach((chat) => {
+    const row = chatRowFor(chat);
+    if (row === cursor) cursor = cursor.nextElementSibling;
+    else els.chatList.insertBefore(row, cursor);
   });
+  while (cursor) {
+    const next = cursor.nextElementSibling;
+    cursor.remove();
+    cursor = next;
+  }
+}
+// Junta várias atualizações seguidas (rajada de mensagens) em um único redesenho por quadro.
+function scheduleRenderChats() {
+  if (!renderChatsFrame) renderChatsFrame = requestAnimationFrame(renderChats);
 }
 async function loadChats() {
   if (statusState !== 'ready') return;
   try {
     chats = await api('/api/chats');
     if (activeChat) activeChat = chats.find((chat) => chat.id === activeChat.id) || activeChat;
+    const ids = new Set(chats.map((chat) => chat.id));
+    for (const id of chatRows.keys()) if (!ids.has(id)) chatRows.delete(id);
     renderChats();
   }
   catch (error) { els.chatList.innerHTML = `<div class="list-loading">${escapeHtml(error.message)}</div>`; }
@@ -478,6 +537,7 @@ async function openChat(id) {
   const chat = chats.find((item) => item.id === id);
   if (!chat) return;
   activeChat = chat; renderedIds = new Set();
+  messageAcks.clear();
   threadHasMore = false; loadingOlder = false;
   clearReplyTarget();
   els.name.textContent = chat.name;
