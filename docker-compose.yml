@@ -1,31 +1,33 @@
 services:
-  chat:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "${CHAT_PORT:-3000}:3000"
-    environment:
-      APP_USER: ${APP_USER:-admin}
-      APP_PASSWORD: ${APP_PASSWORD:?Defina APP_PASSWORD no arquivo .env}
-    volumes:
-      - wwebjs-data:/data
-    shm_size: "512mb"
+    chat:
+        build: .
+        restart: unless-stopped
+        ports:
+            - '${CHAT_PORT:-3000}:3000'
+        environment:
+            APP_USER: ${APP_USER:-admin}
+            APP_PASSWORD: ${APP_PASSWORD:?Defina APP_PASSWORD no arquivo .env}
+            MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-32}
+            TRUST_PROXY: ${TRUST_PROXY:-loopback, uniquelocal}
+        volumes:
+            - wwebjs-data:/data
+        shm_size: '512mb'
 
-  # HTTPS automático (Let's Encrypt). Ative com: docker compose --profile https up -d
-  caddy:
-    image: caddy:2
-    profiles: ["https"]
-    restart: unless-stopped
-    depends_on: [chat]
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN:-}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
+    # HTTPS automático (Let's Encrypt). Ative com: docker compose --profile https up -d
+    caddy:
+        image: caddy:2
+        profiles: ['https']
+        restart: unless-stopped
+        depends_on: [chat]
+        ports:
+            - '80:80'
+            - '443:443'
+        environment:
+            DOMAIN: ${DOMAIN:-}
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy-data:/data
 
 volumes:
-  wwebjs-data:
-  caddy-data:
+    wwebjs-data:
+    caddy-data:

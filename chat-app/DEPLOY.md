@@ -87,11 +87,13 @@ O Caddy emite o certificado Let's Encrypt automaticamente. Acesse `https://129-1
 ## Manutenção
 
 ```bash
-git pull && docker compose --profile https up -d --build   # atualizar
+git pull && docker compose --profile https up -d --build   # atualizar (use o mesmo comando, sem --profile https, se não usa HTTPS)
 docker compose logs -f chat                                # ver logs
 docker compose down                                        # parar (mantém a sessão)
 docker volume rm wppapi_wwebjs-data                        # apagar a sessão do WhatsApp
 ```
+
+Quando o WhatsApp Web muda, a `whatsapp-web.js` costuma lançar correções em poucos dias. O repositório avisa por uma issue no GitHub quando há atualização; veja como aplicá-la em [README.md](README.md#atualizar-a-whatsapp-webjs) e depois rode o `git pull` acima no servidor.
 
 ## Variáveis de ambiente
 
