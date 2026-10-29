@@ -215,10 +215,13 @@ function messageTypeLabel(type = '') {
   })[type] || (type ? type.replaceAll('_', ' ') : 'Mensagem');
 }
 function setReplyTarget(message) {
+  // A barra de resposta diminui a área das mensagens; se estava no fim, continua no fim.
+  const stickToBottom = isNearBottom();
   replyTarget = message;
   els.replyAuthor.textContent = message.fromMe ? 'Você' : (message.author || activeChat?.name || 'Mensagem');
   els.replyText.textContent = messagePreview(message);
   els.replyBar.classList.remove('hidden');
+  if (stickToBottom) els.messages.scrollTop = els.messages.scrollHeight;
   els.input.focus();
 }
 function clearReplyTarget() {
@@ -477,16 +480,19 @@ function createMessageRow(message) {
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
   if (message.id) row.dataset.messageId = message.id;
   row.dataset.timestamp = String(message.timestamp || '');
-  // Em grupos, as mensagens de outras pessoas levam avatar e nome; seguidas da mesma pessoa, só o balão.
-  const inGroup = !message.fromMe && activeChat?.isGroup;
+  // Como no Teams: mensagens dos outros com avatar e "nome  hora" no topo do balão; as suas à direita,
+  // com a hora no topo e o status do lado de fora. Seguidas da mesma pessoa, só o balão.
   const senderId = message.fromMe ? 'me' : (message.authorId || 'them');
   row.dataset.sender = senderId;
-  const senderName = message.fromMe ? 'Você' : inGroup
+  const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
     ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\d+$/, '') : 'Participante'))
     : (message.author || activeChat?.name || '');
-  const avatar = inGroup ? `<span class="avatar avatar-sm ${toneFor(senderId)} ${message.authorId ? 'profile-picture-slot' : ''}" ${message.authorId ? `data-profile-id="${escapeHtml(message.authorId)}"` : ''} aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(senderName))}</span></span>` : '';
-  const name = inGroup ? `<span class="sender-name ${toneFor(senderId)}">${escapeHtml(senderName)}</span>` : '';
-  row.innerHTML = `${avatar}<div class="message-content"><div class="message-bubble">${name}${quoteHtml}${attachment}<div class="message-body">${text}<span class="message-meta">${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</span></div></div></div><div class="message-actions"><button class="icon-button reply-message-button" type="button" title="Responder" aria-label="Responder a esta mensagem">${iconHtml('reply')}</button></div>`;
+  const pictureId = message.fromMe ? '' : (message.authorId || (!activeChat?.isGroup ? activeChat?.id : ''));
+  const avatar = message.fromMe ? '' : `<span class="avatar avatar-sm ${toneFor(activeChat?.isGroup ? senderId : activeChat?.id)} ${pictureId ? 'profile-picture-slot' : ''}" ${pictureId ? `data-profile-id="${escapeHtml(pictureId)}"` : ''} aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(senderName))}</span></span>`;
+  const fullTime = message.timestamp ? new Date(message.timestamp * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const header = `<div class="message-header">${message.fromMe ? '' : `<span class="sender-name">${escapeHtml(senderName)}</span>`}<time>${time}</time></div>`;
+  const status = message.fromMe ? '<span class="message-status"></span>' : '';
+  row.innerHTML = `${avatar}${status}<div class="message-content"><div class="message-bubble" title="${escapeHtml(fullTime)}">${header}${quoteHtml}${attachment}${text}</div></div><div class="message-actions"><button class="icon-button reply-message-button" type="button" title="Responder" aria-label="Responder a esta mensagem">${iconHtml('reply')}</button></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
   if (message.fromMe) {
     const ack = mergeAck(messageAcks.get(message.id), message.ack);
