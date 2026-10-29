@@ -21,6 +21,12 @@ const PROFILE_PICTURE_TTL_MS = 30 * 60 * 1000;
 const messageAcks = new Map();
 const pendingNewChatMessages = [];
 let chatsReloadTimer;
+const FIRST_PAGE_SIZE = 80;
+const OLDER_PAGE_SIZE = 50;
+let threadHasMore = false;
+let loadingOlder = false;
+let myName = '';
+let maxUploadBytes = 32 * 1024 * 1024;
 const profilePictureQueue = [];
 let profilePictureActive = 0;
 let profileObserver;
@@ -213,6 +219,13 @@ function readFileAsDataUrl(file) {
 }
 function displayStatus(data) {
   statusState = data.state;
+  if (Number.isFinite(data.maxUploadBytes)) maxUploadBytes = data.maxUploadBytes;
+  if (data.me) {
+    myName = data.me.name || '';
+    const avatar = document.querySelector('.me-avatar');
+    avatar.textContent = initials(myName || 'Você');
+    avatar.title = myName ? `${myName} (você)` : 'Você';
+  }
   const connected = data.state === 'ready';
   $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando leitura do QR' : data.state === 'authenticated' ? 'Sincronizando WhatsApp' : 'Conectando ao WhatsApp';
   $('sidebarDot').classList.toggle('ready', connected);
@@ -231,7 +244,7 @@ function displayStatus(data) {
   }
   else if (data.state === 'disconnected') { els.title.textContent = 'Conexão perdida'; els.text.textContent = 'Tentando reconectar automaticamente. Se demorar, toque em Tentar novamente.'; }
   else if (data.state === 'error') { els.title.textContent = 'Não foi possível conectar'; els.text.textContent = 'Confira a sessão do WhatsApp e tente iniciar novamente.'; }
-  else { els.title.textContent = 'Conectando ao WhatsApp'; els.text.textContent = 'Iniciando uma sessão segura no Codespace…'; }
+  else { els.title.textContent = 'Conectando ao WhatsApp'; els.text.textContent = 'Iniciando a conexão com o WhatsApp…'; }
 }
 socket.on('status', displayStatus);
 function notifyIncomingMessage(chat, message) {
@@ -358,46 +371,111 @@ function applyAckStatus(element, ack) {
 function isNearBottom() {
   return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 120;
 }
-function appendMessage(message) {
-  if (message.id && renderedIds.has(message.id)) return;
-  if (message.id) renderedIds.add(message.id);
-  const shouldScroll = message.fromMe || isNearBottom();
+function createMessageRow(message) {
   const time = timeLabel(message.timestamp);
   const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
   let attachment = '';
   if (mediaUrl && message.isGif) attachment = `<video class="inline-video inline-gif" src="${mediaUrl}" autoplay loop muted playsinline></video>`;
   else if (mediaUrl && message.type === 'sticker') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" /></a>`;
-  else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="Imagem recebida" loading="lazy" /></a>`;
+  else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></a>`;
   else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
   else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
-  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download>📎 Abrir ou baixar documento</a>`;
+  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">📎 ${escapeHtml(message.filename || 'Abrir ou baixar documento')}</a>`;
   else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">📎 Abrir mídia (${escapeHtml(message.type || 'arquivo')})</a>`;
-  const content = `${attachment}${message.body ? `${attachment ? '<br>' : ''}${escapeHtml(message.body)}` : (!attachment ? `<span class="message-media">${escapeHtml(messageTypeLabel(message.type))}</span>` : '')}`;
+  const caption = message.type === 'document' && message.body === message.filename ? '' : message.body;
+  const content = `${attachment}${caption ? `${attachment ? '<br>' : ''}${escapeHtml(caption)}` : (!attachment ? `<span class="message-media">${escapeHtml(messageTypeLabel(message.type))}</span>` : '')}`;
   const quote = message.replyPreview || message.quotedMessage;
   const quoteText = quote ? (quote.body || (quote.hasMedia ? messagePreview(quote) : 'Mensagem')) : '';
   const quoteHtml = quote ? `<div class="quoted-message"><strong>${escapeHtml(quote.fromMe ? 'Você' : (quote.author || 'Mensagem citada'))}</strong><span>${escapeHtml(quoteText)}</span></div>` : '';
   const row = document.createElement('div');
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
+  if (message.id) row.dataset.messageId = message.id;
+  row.dataset.timestamp = String(message.timestamp || '');
   const senderAvatarId = !message.fromMe && activeChat?.isGroup ? message.authorId : '';
   const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
     ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\d+$/, '') : 'Participante'))
     : (message.author || activeChat?.name || '');
-  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(message.fromMe ? 'T' : initials(senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</div></div>`;
+  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(initials(message.fromMe ? (myName || 'Você') : senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</div></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
   if (message.fromMe) {
-    if (message.id) row.dataset.messageId = message.id;
     const ack = mergeAck(messageAcks.get(message.id), message.ack);
     if (message.id) messageAcks.set(message.id, ack);
     applyAckStatus(row.querySelector('.message-status'), ack);
   }
+  return row;
+}
+function queueRowProfilePictures(root) {
+  root.querySelectorAll('.message-row .profile-picture-slot').forEach((slot) => queueProfilePicture(slot.dataset.profileId));
+}
+// Recria os separadores de dia a partir das mensagens exibidas (vale para histórico e tempo real).
+function refreshDayDividers() {
+  els.messages.querySelectorAll('.day-divider').forEach((divider) => divider.remove());
+  let priorDay = '';
+  els.messages.querySelectorAll('.message-row').forEach((row) => {
+    const timestamp = Number(row.dataset.timestamp);
+    if (!timestamp) return;
+    const day = dayLabel(timestamp);
+    if (day === priorDay) return;
+    const divider = document.createElement('div');
+    divider.className = 'day-divider';
+    divider.textContent = day;
+    row.before(divider);
+    priorDay = day;
+  });
+}
+function appendMessage(message) {
+  if (message.id && renderedIds.has(message.id)) return;
+  if (message.id) renderedIds.add(message.id);
+  const shouldScroll = message.fromMe || isNearBottom();
+  const row = createMessageRow(message);
   els.messages.appendChild(row);
-  if (senderAvatarId) queueProfilePicture(senderAvatarId);
+  queueRowProfilePictures(row);
+  refreshDayDividers();
+  updateHistoryLoader();
   if (shouldScroll) els.messages.scrollTop = els.messages.scrollHeight;
+}
+function updateHistoryLoader() {
+  const loader = els.messages.querySelector('.history-loader');
+  if (!loader) return;
+  const hasRows = Boolean(els.messages.querySelector('.message-row'));
+  loader.classList.toggle('hidden', !hasRows);
+  const button = loader.querySelector('button');
+  button.disabled = loadingOlder || !threadHasMore;
+  button.textContent = loadingOlder ? 'Carregando mensagens anteriores…' : threadHasMore ? 'Carregar mensagens anteriores' : 'Início da conversa';
+}
+async function loadOlderMessages() {
+  if (!activeChat || loadingOlder || !threadHasMore) return;
+  const firstRow = els.messages.querySelector('.message-row[data-message-id]');
+  if (!firstRow) return;
+  const chatId = activeChat.id;
+  loadingOlder = true; updateHistoryLoader();
+  try {
+    const page = await api(`/api/chats/${encodeURIComponent(chatId)}/messages?limit=${OLDER_PAGE_SIZE}&before=${encodeURIComponent(firstRow.dataset.messageId)}`);
+    if (activeChat?.id !== chatId) return;
+    threadHasMore = page.hasMore;
+    const previousHeight = els.messages.scrollHeight;
+    const previousTop = els.messages.scrollTop;
+    const fragment = document.createDocumentFragment();
+    page.messages.forEach((message) => {
+      if (message.id && renderedIds.has(message.id)) return;
+      if (message.id) renderedIds.add(message.id);
+      fragment.appendChild(createMessageRow(message));
+    });
+    const anchor = firstRow.previousElementSibling?.classList.contains('day-divider') ? firstRow.previousElementSibling : firstRow;
+    anchor.before(fragment);
+    refreshDayDividers();
+    queueRowProfilePictures(els.messages);
+    els.messages.scrollTop = previousTop + (els.messages.scrollHeight - previousHeight);
+  } catch (error) { if (activeChat?.id === chatId) showToast(error.message); }
+  finally {
+    if (activeChat?.id === chatId) { loadingOlder = false; updateHistoryLoader(); }
+  }
 }
 async function openChat(id) {
   const chat = chats.find((item) => item.id === id);
   if (!chat) return;
   activeChat = chat; renderedIds = new Set();
+  threadHasMore = false; loadingOlder = false;
   clearReplyTarget();
   els.name.textContent = chat.name;
   updateMuteButton();
@@ -411,20 +489,30 @@ async function openChat(id) {
   renderChats();
   els.messages.innerHTML = '<div class="messages-loading">Carregando mensagens…</div>';
   try {
-    const messages = await api(`/api/chats/${encodeURIComponent(id)}/messages?limit=80`);
-    els.messages.innerHTML = '';
-    let priorDay = '';
-    messages.forEach((message) => {
-      const day = dayLabel(message.timestamp);
-      if (day !== priorDay) { const divider = document.createElement('div'); divider.className = 'day-divider'; divider.textContent = day; els.messages.appendChild(divider); priorDay = day; }
-      appendMessage(message);
+    const page = await api(`/api/chats/${encodeURIComponent(id)}/messages?limit=${FIRST_PAGE_SIZE}`);
+    if (activeChat?.id !== id) return;
+    threadHasMore = page.hasMore;
+    // Mensagens que chegaram durante o carregamento estavam no indicador de carregamento; o histórico as inclui.
+    renderedIds = new Set();
+    els.messages.innerHTML = '<div class="history-loader hidden"><button type="button"></button></div>';
+    els.messages.querySelector('.history-loader button').addEventListener('click', loadOlderMessages);
+    const fragment = document.createDocumentFragment();
+    page.messages.forEach((message) => {
+      if (message.id && renderedIds.has(message.id)) return;
+      if (message.id) renderedIds.add(message.id);
+      fragment.appendChild(createMessageRow(message));
     });
+    els.messages.appendChild(fragment);
+    refreshDayDividers();
+    queueRowProfilePictures(els.messages);
+    updateHistoryLoader();
     els.messages.scrollTop = els.messages.scrollHeight;
     chat.unreadCount = 0; renderChats();
     markChatSeen(id);
-  } catch (error) { els.messages.innerHTML = `<div class="messages-loading">${escapeHtml(error.message)}</div>`; }
+  } catch (error) { if (activeChat?.id === id) els.messages.innerHTML = `<div class="messages-loading">${escapeHtml(error.message)}</div>`; }
   els.input.focus();
 }
+els.messages.addEventListener('scroll', () => { if (els.messages.scrollTop < 80) loadOlderMessages(); });
 els.search.addEventListener('input', renderChats);
 $('refreshBtn').addEventListener('click', loadChats);
 $('themeToggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
@@ -482,6 +570,26 @@ $('retryBtn').addEventListener('click', async () => {
 $('cancelReplyBtn').addEventListener('click', clearReplyTarget);
 $('stickerBtn').addEventListener('click', () => els.stickerInput.click());
 $('mediaBtn').addEventListener('click', () => els.mediaInput.click());
+async function sendFile(file) {
+  if (!activeChat) { showToast('Abra uma conversa antes de anexar um arquivo.'); return; }
+  if (file.type === 'image/gif') { await sendClipboardMedia(file); return; }
+  if (!file.size) { showToast('O arquivo está vazio.'); return; }
+  if (file.size > maxUploadBytes) { showToast(`O arquivo deve ter até ${Math.round(maxUploadBytes / 1024 / 1024)} MB.`); return; }
+  const chatId = activeChat.id;
+  const quoted = replyTarget;
+  const headers = { 'Content-Type': 'application/octet-stream', 'X-File-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name || 'arquivo') };
+  if (quoted?.id) headers['X-Quoted-Message-Id'] = quoted.id;
+  try {
+    showToast(`Enviando ${file.name || 'arquivo'}…`);
+    const sent = await api(`/api/chats/${encodeURIComponent(chatId)}/files`, { method: 'POST', headers, body: file });
+    if (quoted) sent.replyPreview = { id: quoted.id, body: messagePreview(quoted), fromMe: quoted.fromMe };
+    if (activeChat?.id === chatId) appendMessage(sent);
+    if (replyTarget === quoted) clearReplyTarget();
+  } catch (error) { showToast(error.message); }
+}
+async function sendFiles(files) {
+  for (const file of files) await sendFile(file);
+}
 async function sendClipboardMedia(file) {
   if (!activeChat) { showToast('Abra uma conversa antes de anexar uma mídia.'); return; }
   if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou a imagem deve ter até 7 MB.'); return; }
@@ -497,18 +605,18 @@ async function sendClipboardMedia(file) {
   } catch (error) { showToast(error.message); }
 }
 els.mediaInput.addEventListener('change', async () => {
-  const file = els.mediaInput.files?.[0];
-  if (file) await sendClipboardMedia(file);
+  const files = [...(els.mediaInput.files || [])];
   els.mediaInput.value = '';
+  await sendFiles(files);
 });
 els.composer.addEventListener('dragover', (event) => {
   if ([...(event.dataTransfer?.items || [])].some((item) => item.kind === 'file')) event.preventDefault();
 });
 els.composer.addEventListener('drop', async (event) => {
-  const file = [...(event.dataTransfer?.files || [])].find((item) => /^image\/(gif|png|jpeg|webp)$/.test(item.type) || item.type === 'video/mp4');
-  if (!file) return;
+  const files = [...(event.dataTransfer?.files || [])];
+  if (!files.length) return;
   event.preventDefault();
-  await sendClipboardMedia(file);
+  await sendFiles(files);
 });
 els.stickerInput.addEventListener('change', async () => {
   const file = els.stickerInput.files?.[0];
@@ -533,6 +641,8 @@ els.input.addEventListener('paste', async (event) => {
   const clipboardItems = [...(event.clipboardData?.items || [])];
   const mediaItem = clipboardItems.find((item) => item.kind === 'file' && /^image\/(gif|png|jpeg|webp)$/.test(item.type));
   const file = mediaItem?.getAsFile() || [...(event.clipboardData?.files || [])].find((item) => /^image\/(gif|png|jpeg|webp)$/.test(item.type));
+  const otherFiles = file ? [] : [...(event.clipboardData?.files || [])];
+  if (!file && otherFiles.length) { event.preventDefault(); await sendFiles(otherFiles); return; }
   if (!file) return; // Texto, incluindo emojis do Win + ., continua sendo inserido normalmente.
   event.preventDefault();
   if (!activeChat) { showToast('Abra uma conversa antes de colar uma mídia.'); return; }

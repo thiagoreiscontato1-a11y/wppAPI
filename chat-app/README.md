@@ -29,7 +29,11 @@ Para hospedar o chat em um servidor gratuito (Oracle Cloud Always Free, com Dock
 
 ## Mídia e fotos de perfil
 
-A prévia carrega fotos de perfil sob demanda e exibe imagens, vídeos e áudios dentro da conversa. Documentos aparecem como links para abrir ou baixar. Algumas fotos podem não aparecer se as configurações de privacidade do contato impedirem o acesso; nesse caso, a interface mantém as iniciais.
+A prévia carrega fotos de perfil sob demanda e exibe imagens, vídeos e áudios dentro da conversa, com suporte a avançar e voltar a reprodução. Documentos aparecem como links com o nome do arquivo para abrir ou baixar.
+
+Ao abrir uma conversa são carregadas as 80 mensagens mais recentes; role até o topo (ou use **Carregar mensagens anteriores**) para buscar mais 50 por vez até o início da conversa.
+
+O botão **📎** envia um ou vários arquivos de uma vez (também é possível arrastar ou colar arquivos na caixa de mensagem). Fotos JPEG/PNG/WebP, vídeos MP4 e áudios MP3/OGG/M4A aparecem direto na conversa; GIFs viram animações; os demais formatos (PDF, planilhas, ZIP etc.) vão como documento. O limite padrão é 32 MB por arquivo, ajustável pela variável `MAX_UPLOAD_MB`. Algumas fotos podem não aparecer se as configurações de privacidade do contato impedirem o acesso; nesse caso, a interface mantém as iniciais.
 
 O botão de figurinha permite selecionar PNG, JPEG ou WebP (até 5 MB) e envia a imagem como figurinha. Use o botão **↩** em uma mensagem para selecioná-la como citação; a resposta pode ser uma mensagem de texto ou uma figurinha.
 

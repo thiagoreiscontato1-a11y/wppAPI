@@ -62,6 +62,13 @@ const profilePictureRequests = new Map();
 const contactNameCache = new Map();
 const PROFILE_PICTURE_TTL_MS = 60 * 60 * 1000;
 const PROFILE_PICTURE_MISS_TTL_MS = 10 * 60 * 1000;
+const MESSAGE_FETCH_MAX = 2000;
+const MEDIA_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const maxUploadBytes = Number(process.env.MAX_UPLOAD_MB || 32) * 1024 * 1024;
+const mediaCache = new Map();
+const mediaRequests = new Map();
+let mediaCacheBytes = 0;
+let me = null;
 let reconnectTimer = null;
 let restartPromise = null;
 
@@ -96,8 +103,75 @@ async function getProfilePictureWithRetry(chatId) {
   return undefined;
 }
 
+function statusPayload() {
+  return { state, qrDataUrl, error: lastError, loadingPercent, me, maxUploadBytes };
+}
+
 function publishStatus() {
-  io.emit('status', { state, qrDataUrl, error: lastError, loadingPercent });
+  io.emit('status', statusPayload());
+}
+
+// Busca `limit` mensagens anteriores a `beforeId` (ou as mais recentes). A biblioteca só
+// carrega a partir do fim da conversa, então amplia a busca até alcançar a mensagem de referência.
+async function fetchMessagesPage(chat, limit, beforeId) {
+  let fetchLimit = beforeId ? limit * 2 : limit;
+  for (;;) {
+    const messages = await chat.fetchMessages({ limit: fetchLimit });
+    const reachedStart = messages.length < fetchLimit;
+    const end = beforeId ? messages.findIndex((msg) => msg.id?._serialized === beforeId) : messages.length;
+    if (end >= 0 && (end >= limit || reachedStart || fetchLimit >= MESSAGE_FETCH_MAX)) {
+      return { messages: messages.slice(Math.max(0, end - limit), end), hasMore: end > limit || (!reachedStart && fetchLimit < MESSAGE_FETCH_MAX) };
+    }
+    if (reachedStart || fetchLimit >= MESSAGE_FETCH_MAX) return { messages: [], hasMore: false };
+    fetchLimit = Math.min(fetchLimit * 2, MESSAGE_FETCH_MAX);
+  }
+}
+
+// Navegadores pedem vídeos e áudios em pedaços; guarda as mídias recentes para não baixar de novo a cada pedaço.
+function getMediaEntry(messageId) {
+  const cached = mediaCache.get(messageId);
+  if (cached) {
+    mediaCache.delete(messageId);
+    mediaCache.set(messageId, cached);
+    return Promise.resolve(cached);
+  }
+  let request = mediaRequests.get(messageId);
+  if (!request) {
+    request = (async () => {
+      const message = await client.getMessageById(messageId);
+      if (!message?.hasMedia) return { status: 404, error: 'Mídia não encontrada.' };
+      const media = await message.downloadMedia();
+      if (!media?.data) return { status: 404, error: 'Não foi possível baixar esta mídia.' };
+      const entry = { mimetype: media.mimetype || 'application/octet-stream', filename: media.filename, buffer: Buffer.from(media.data, 'base64') };
+      if (entry.buffer.length <= MEDIA_CACHE_MAX_BYTES / 4) {
+        mediaCache.set(messageId, entry);
+        mediaCacheBytes += entry.buffer.length;
+        for (const [id, old] of mediaCache) {
+          if (mediaCacheBytes <= MEDIA_CACHE_MAX_BYTES) break;
+          mediaCache.delete(id);
+          mediaCacheBytes -= old.buffer.length;
+        }
+      }
+      return entry;
+    })().finally(() => mediaRequests.delete(messageId));
+    mediaRequests.set(messageId, request);
+  }
+  return request;
+}
+
+function parseByteRange(header, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(header || '').trim());
+  if (!match || (match[1] === '' && match[2] === '')) return null;
+  let start;
+  let end;
+  if (match[1] === '') {
+    start = Math.max(0, size - Number(match[2]));
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
+  }
+  return start <= end && start < size ? { start, end } : { invalid: true };
 }
 
 function serializeMessage(msg) {
@@ -114,6 +188,7 @@ function serializeMessage(msg) {
     author: msg._data?.notifyName || msg._data?.pushname || '',
     authorId: msg.author || null,
     hasMedia: Boolean(msg.hasMedia),
+    filename: msg._data?.filename || null,
     quotedMessage: quoted ? {
       id: quotedId,
       body: quoted.body || quoted.caption || '',
@@ -207,6 +282,7 @@ async function startClient() {
     publishStatus();
   });
   on('ready', () => {
+    me = { name: current.info?.pushname || '', id: current.info?.wid?._serialized || '' };
     qrDataUrl = null;
     loadingPercent = null;
     state = 'ready';
@@ -267,14 +343,17 @@ function restartClient() {
     loadingPercent = null;
     publishStatus();
     try { await previous?.destroy(); } catch {}
+    me = null;
     profilePictureCache.clear();
     contactNameCache.clear();
+    mediaCache.clear();
+    mediaCacheBytes = 0;
     startClient();
   })().finally(() => { restartPromise = null; });
   return restartPromise;
 }
 
-app.get('/api/status', (_req, res) => res.json({ state, qrDataUrl, error: lastError }));
+app.get('/api/status', (_req, res) => res.json(statusPayload()));
 app.get('/favicon.ico', (_req, res) => res.sendStatus(204));
 
 app.get('/api/chats/:id/profile-picture', async (req, res) => {
@@ -302,19 +381,29 @@ app.get('/api/chats/:id/profile-picture', async (req, res) => {
 app.get('/api/media/:messageId', async (req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   try {
-    const message = await client.getMessageById(req.params.messageId);
-    if (!message?.hasMedia) return res.status(404).json({ error: 'Mídia não encontrada.' });
-    const media = await message.downloadMedia();
-    if (!media?.data) return res.status(404).json({ error: 'Não foi possível baixar esta mídia.' });
-    const buffer = Buffer.from(media.data, 'base64');
-    res.setHeader('Content-Type', media.mimetype || 'application/octet-stream');
-    res.setHeader('Content-Length', buffer.length);
+    const media = await getMediaEntry(req.params.messageId);
+    if (media.error) return res.status(media.status).json({ error: media.error });
+    const { buffer } = media;
+    res.setHeader('Content-Type', media.mimetype);
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'private, max-age=300');
     if (media.filename) {
       const safeName = media.filename.replace(/[\r\n"\\]/g, '_');
-      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(media.filename)}`);
     }
-    res.send(buffer);
+    const range = parseByteRange(req.headers.range, buffer.length);
+    if (range?.invalid) {
+      res.setHeader('Content-Range', `bytes */${buffer.length}`);
+      return res.status(416).end();
+    }
+    if (range) {
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${buffer.length}`);
+      res.setHeader('Content-Length', range.end - range.start + 1);
+      return res.end(buffer.subarray(range.start, range.end + 1));
+    }
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   } catch (error) {
     console.error('Falha ao baixar mídia da mensagem:', error);
     res.status(500).json({ error: error.message });
@@ -354,8 +443,10 @@ app.get('/api/chats/:id/messages', async (req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   try {
     const chat = await client.getChatById(req.params.id);
-    const messages = await chat.fetchMessages({ limit: Math.min(Number(req.query.limit) || 60, 100) });
-    res.json(await Promise.all(messages.map(serializeMessageForChat)));
+    const limit = Math.min(Math.max(Number(req.query.limit) || 60, 1), 100);
+    const before = String(req.query.before || '').trim() || null;
+    const page = await fetchMessagesPage(chat, limit, before);
+    res.json({ messages: await Promise.all(page.messages.map(serializeMessageForChat)), hasMore: page.hasMore });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
@@ -376,6 +467,28 @@ app.post('/api/chats/:id/seen', async (req, res) => {
     await client.sendSeen(req.params.id);
     res.json({ ok: true });
   } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Recebe o arquivo como binário (application/octet-stream); o tipo real vem em X-File-Type.
+app.post('/api/chats/:id/files', express.raw({ type: 'application/octet-stream', limit: maxUploadBytes }), async (req, res) => {
+  if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'Selecione um arquivo.' });
+  const mimetype = String(req.headers['x-file-type'] || '').split(';')[0].trim().toLowerCase() || 'application/octet-stream';
+  let filename = 'arquivo';
+  try { filename = decodeURIComponent(String(req.headers['x-file-name'] || '')).replace(/[\r\n\\/]/g, '_').slice(0, 200) || filename; } catch {}
+  const quotedMessageId = String(req.headers['x-quoted-message-id'] || '').trim();
+  const options = {};
+  if (quotedMessageId) options.quotedMessageId = quotedMessageId;
+  // Formatos que o WhatsApp mostra direto na conversa; o resto vai como documento.
+  if (!/^(image\/(jpeg|png|webp)|video\/(mp4|3gpp)|audio\/(ogg|mpeg|mp4|aac|amr|x-m4a|opus))$/.test(mimetype)) options.sendMediaAsDocument = true;
+  try {
+    const media = new MessageMedia(mimetype, req.body.toString('base64'), filename, req.body.length);
+    const sent = await client.sendMessage(req.params.id, media, options);
+    res.status(201).json(serializeMessage(sent));
+  } catch (error) {
+    console.error('Falha ao enviar arquivo:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/chats/:id/stickers', async (req, res) => {
@@ -447,8 +560,15 @@ app.post('/api/restart', (_req, res) => {
   res.status(202).json({ ok: true });
 });
 
+app.use((error, _req, res, next) => {
+  if (error?.type === 'entity.too.large') {
+    return res.status(413).json({ error: `O arquivo deve ter até ${Math.round(maxUploadBytes / 1024 / 1024)} MB.` });
+  }
+  next(error);
+});
+
 io.on('connection', (socket) => {
-  socket.emit('status', { state, qrDataUrl, error: lastError, loadingPercent });
+  socket.emit('status', statusPayload());
 });
 
 server.listen(port, '0.0.0.0', () => {

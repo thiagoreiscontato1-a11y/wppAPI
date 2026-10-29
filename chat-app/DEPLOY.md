@@ -98,6 +98,7 @@ docker volume rm wppapi_wwebjs-data                        # apagar a sessão do
 | `APP_PASSWORD` | — | Senha da interface (obrigatória com `NODE_ENV=production`, que já vem definido na imagem Docker) |
 | `APP_USER` | `admin` | Usuário da interface |
 | `PORT` | `3000` | Porta HTTP do servidor |
+| `MAX_UPLOAD_MB` | `32` | Tamanho máximo de cada arquivo enviado pela interface |
 | `WWEBJS_AUTH_PATH` | `chat-app/.wwebjs_auth` (`/data/.wwebjs_auth` no Docker) | Onde a sessão do WhatsApp é salva |
 | `PUPPETEER_EXECUTABLE_PATH` | Chromium do Puppeteer (`/usr/bin/chromium` no Docker) | Navegador usado |
 | `DOMAIN` | — | Domínio para o HTTPS do Caddy |
