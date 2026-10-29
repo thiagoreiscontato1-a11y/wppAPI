@@ -30,7 +30,7 @@ Para hospedar o chat em um servidor gratuito (Oracle Cloud Always Free, com Dock
 
 ## Mídia e fotos de perfil
 
-A prévia carrega fotos de perfil sob demanda e exibe imagens, vídeos e áudios dentro da conversa, com suporte a avançar e voltar a reprodução. Documentos aparecem como links com o nome do arquivo para abrir ou baixar.
+A prévia carrega fotos de perfil sob demanda e exibe imagens, vídeos e áudios dentro da conversa. Áudios e mensagens de voz têm player próprio: tocar e pausar, pular clicando na onda (ou com as setas do teclado), duração antes de tocar e velocidade 1×, 1,5× ou 2×, que vale para os próximos áudios. Só um áudio toca por vez, e o arquivo só é baixado ao tocar. Mensagens de voz usam a forma de onda enviada pelo WhatsApp; quando ela não vem, a interface desenha uma onda ilustrativa. Documentos aparecem como links com o nome do arquivo para abrir ou baixar.
 
 Ao abrir uma conversa são carregadas as 80 mensagens mais recentes; role até o topo (ou use **Carregar mensagens anteriores**) para buscar mais 50 por vez até o início da conversa.
 

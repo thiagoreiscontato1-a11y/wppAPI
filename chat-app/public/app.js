@@ -197,7 +197,8 @@ function processProfilePictureQueue() {
 function messagePreview(message) {
   if (message.body) return message.body;
   if (!message.hasMedia) return 'Mensagem';
-  return ({ sticker: 'Figurinha', image: 'Imagem', video: 'Vídeo', audio: 'Áudio', ptt: 'Mensagem de voz', document: 'Documento' })[message.type] || 'Mídia anexada';
+  const label = ({ sticker: 'Figurinha', image: 'Imagem', video: 'Vídeo', audio: 'Áudio', ptt: 'Mensagem de voz', document: 'Documento' })[message.type] || 'Mídia anexada';
+  return ['audio', 'ptt'].includes(message.type) && message.duration ? `${label} (${formatDuration(message.duration)})` : label;
 }
 function messageTypeLabel(type = '') {
   return ({
@@ -468,7 +469,7 @@ function createMessageRow(message) {
   else if (mediaUrl && message.type === 'sticker') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" /></a>`;
   else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></a>`;
   else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
-  else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
+  else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = audioPlayerHtml(message, mediaUrl);
   else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">${iconHtml('file')}<span>${escapeHtml(message.filename || 'Abrir ou baixar documento')}</span></a>`;
   else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">${iconHtml('file')}<span>Abrir mídia (${escapeHtml(message.type || 'arquivo')})</span></a>`;
   const caption = message.type === 'document' && message.body === message.filename ? '' : message.body;
@@ -494,12 +495,127 @@ function createMessageRow(message) {
   const status = message.fromMe ? '<span class="message-status"></span>' : '';
   row.innerHTML = `${avatar}${status}<div class="message-content"><div class="message-bubble" title="${escapeHtml(fullTime)}">${header}${quoteHtml}${attachment}${text}</div></div><div class="message-actions"><button class="icon-button reply-message-button" type="button" title="Responder" aria-label="Responder a esta mensagem">${iconHtml('reply')}</button></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
+  row.querySelectorAll('.audio-player').forEach(setupAudioPlayer);
   if (message.fromMe) {
     const ack = mergeAck(messageAcks.get(message.id), message.ack);
     if (message.id) messageAcks.set(message.id, ack);
     applyAckStatus(row.querySelector('.message-status'), ack);
   }
   return row;
+}
+// Player de áudio: botão de tocar, onda (mensagens de voz) ou linha de progresso (arquivos de áudio),
+// tempo e velocidade. O arquivo só é baixado ao tocar ou pular para um ponto.
+let playingAudio = null;
+let audioRate = 1;
+const AUDIO_RATES = [1, 1.5, 2];
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+// Sem a onda real, desenha uma onda fixa a partir do id, só para dar forma à mensagem de voz.
+function placeholderWaveform(id = '') {
+  let seed = 0;
+  for (const char of String(id)) seed = (seed * 31 + char.codePointAt(0)) >>> 0;
+  return Array.from({ length: 48 }, () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return 25 + (seed >>> 16) % 70;
+  });
+}
+function audioPlayerHtml(message, url) {
+  const voice = message.type === 'ptt';
+  const label = voice ? 'mensagem de voz' : 'áudio';
+  const track = voice
+    ? (message.waveform || placeholderWaveform(message.id)).map((height) => `<i style="height:${Math.max(12, height)}%"></i>`).join('')
+    : '<span class="audio-line"><span class="audio-fill"></span></span>';
+  return `<div class="audio-player ${voice ? 'voice' : 'file'}" data-src="${url}" data-duration="${message.duration || ''}" data-label="${label}">`
+    + `<button class="audio-play" type="button" aria-label="Tocar ${label}">${iconHtml('play')}</button>`
+    + `<div class="audio-track" role="slider" tabindex="0" aria-label="Posição do ${label}" aria-valuemin="0" aria-valuemax="${Math.round(message.duration || 0)}" aria-valuenow="0" aria-valuetext="0:00">${track}</div>`
+    + `<span class="audio-time">${voice ? iconHtml('mic') : ''}<span>${formatDuration(message.duration || NaN)}</span></span>`
+    + `<button class="audio-speed" type="button" aria-label="Velocidade de reprodução: 1x">1×</button>`
+    + '</div>';
+}
+function setupAudioPlayer(player) {
+  const playButton = player.querySelector('.audio-play');
+  const track = player.querySelector('.audio-track');
+  const timeText = player.querySelector('.audio-time span');
+  const speedButton = player.querySelector('.audio-speed');
+  const bars = [...track.querySelectorAll('i')];
+  const fill = track.querySelector('.audio-fill');
+  const label = player.dataset.label;
+  let audio = null;
+  const knownDuration = Number(player.dataset.duration) || NaN;
+  const duration = () => (Number.isFinite(audio?.duration) && audio.duration > 0 ? audio.duration : knownDuration);
+  function render() {
+    const total = duration();
+    const current = audio?.currentTime || 0;
+    const fraction = Number.isFinite(total) && total > 0 ? Math.min(current / total, 1) : 0;
+    const playedBars = Math.round(fraction * bars.length);
+    bars.forEach((bar, index) => bar.classList.toggle('played', index < playedBars));
+    if (fill) fill.style.width = `${fraction * 100}%`;
+    // Parado no início mostra a duração; tocando (ou pausado no meio), o tempo decorrido.
+    const started = audio && (!audio.paused || current > 0);
+    timeText.textContent = formatDuration(started ? current : total);
+    track.setAttribute('aria-valuemax', String(Math.round(Number.isFinite(total) ? total : 0)));
+    track.setAttribute('aria-valuenow', String(Math.round(current)));
+    track.setAttribute('aria-valuetext', `${formatDuration(current)} de ${formatDuration(total)}`);
+  }
+  function setPlaying(playing) {
+    player.classList.toggle('playing', playing);
+    playButton.innerHTML = iconHtml(playing ? 'pause' : 'play');
+    playButton.setAttribute('aria-label', `${playing ? 'Pausar' : 'Tocar'} ${label}`);
+  }
+  function ensureAudio() {
+    if (audio) return audio;
+    audio = new Audio(player.dataset.src);
+    audio.preload = 'metadata';
+    audio.playbackRate = audioRate;
+    audio.addEventListener('loadedmetadata', render);
+    audio.addEventListener('timeupdate', render);
+    audio.addEventListener('play', () => { if (playingAudio && playingAudio !== audio) playingAudio.pause(); playingAudio = audio; audio.playbackRate = audioRate; setPlaying(true); });
+    audio.addEventListener('pause', () => { setPlaying(false); render(); });
+    audio.addEventListener('ended', () => { audio.currentTime = 0; setPlaying(false); render(); });
+    audio.addEventListener('error', () => { setPlaying(false); showToast('Não foi possível tocar este áudio.'); });
+    return audio;
+  }
+  function seekTo(seconds) {
+    const media = ensureAudio();
+    const apply = () => {
+      const total = duration();
+      media.currentTime = Math.max(0, Number.isFinite(total) ? Math.min(seconds, total) : seconds);
+      render();
+    };
+    if (media.readyState >= 1) apply(); else media.addEventListener('loadedmetadata', apply, { once: true });
+  }
+  playButton.addEventListener('click', () => {
+    const media = ensureAudio();
+    if (media.paused) media.play().catch(() => {}); else media.pause();
+  });
+  track.addEventListener('click', (event) => {
+    const box = track.getBoundingClientRect();
+    const fraction = Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1);
+    const apply = () => seekTo(fraction * duration());
+    if (Number.isFinite(duration())) apply(); else ensureAudio().addEventListener('loadedmetadata', apply, { once: true });
+  });
+  track.addEventListener('keydown', (event) => {
+    const steps = { ArrowLeft: -5, ArrowDown: -5, ArrowRight: 5, ArrowUp: 5 };
+    if (event.key in steps) seekTo((audio?.currentTime || 0) + steps[event.key]);
+    else if (event.key === 'Home') seekTo(0);
+    else if (event.key === 'End' && Number.isFinite(duration())) seekTo(duration());
+    else return;
+    event.preventDefault();
+  });
+  // A velocidade escolhida vale para os próximos áudios também, como no WhatsApp.
+  speedButton.addEventListener('click', () => {
+    audioRate = AUDIO_RATES[(AUDIO_RATES.indexOf(audioRate) + 1) % AUDIO_RATES.length];
+    document.querySelectorAll('.audio-speed').forEach((button) => {
+      button.textContent = `${String(audioRate).replace('.', ',')}×`;
+      button.setAttribute('aria-label', `Velocidade de reprodução: ${String(audioRate).replace('.', ',')}x`);
+    });
+    if (playingAudio) playingAudio.playbackRate = audioRate;
+  });
+  speedButton.textContent = `${String(audioRate).replace('.', ',')}×`;
+  render();
 }
 function queueRowProfilePictures(root) {
   root.querySelectorAll('.message-row .profile-picture-slot').forEach((slot) => queueProfilePicture(slot.dataset.profileId));

@@ -1,4 +1,21 @@
 const MESSAGE_FETCH_MAX = 2000;
+const WAVEFORM_BARS = 48;
+
+// Forma de onda das mensagens de voz, reduzida a WAVEFORM_BARS valores de 0 a 100.
+// O WhatsApp guarda um Uint8Array, que pode chegar como array ou objeto com índices; formato desconhecido vira null.
+function normalizeWaveform(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const values = Array.from(Array.isArray(raw) || ArrayBuffer.isView(raw) ? raw : Object.values(raw), Number).filter(Number.isFinite);
+  if (values.length < 8) return null;
+  const max = Math.max(...values);
+  if (max <= 0) return null;
+  // Cada barra fica com o pico do seu trecho (ao menos um valor, para ondas com menos pontos que barras).
+  return Array.from({ length: WAVEFORM_BARS }, (_, i) => {
+    const start = Math.floor(i * values.length / WAVEFORM_BARS);
+    const end = Math.max(start + 1, Math.floor((i + 1) * values.length / WAVEFORM_BARS));
+    return Math.round(Math.max(...values.slice(start, end)) / max * 100);
+  });
+}
 
 function serializeMessage(msg) {
   const quoted = msg._data?.quotedMsg;
@@ -15,6 +32,8 @@ function serializeMessage(msg) {
     authorId: msg.author || null,
     hasMedia: Boolean(msg.hasMedia),
     filename: msg._data?.filename || null,
+    duration: Number(msg.duration ?? msg._data?.duration) || null,
+    waveform: normalizeWaveform(msg._data?.waveform),
     quotedMessage: quoted ? {
       id: quotedId,
       body: quoted.body || quoted.caption || '',
@@ -93,4 +112,4 @@ function createMessageSerializer({ getClient, contactNames }) {
   };
 }
 
-module.exports = { serializeMessage, fetchMessagesPage, createMessageSerializer, MESSAGE_FETCH_MAX };
+module.exports = { serializeMessage, fetchMessagesPage, createMessageSerializer, normalizeWaveform, MESSAGE_FETCH_MAX };
