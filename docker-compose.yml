@@ -9,6 +9,10 @@ services:
             APP_PASSWORD: ${APP_PASSWORD:?Defina APP_PASSWORD no arquivo .env}
             MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-32}
             TRUST_PROXY: ${TRUST_PROXY:-loopback, uniquelocal}
+            ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+            # Definidas pelo GitHub Codespaces; liberam o endereço público das portas do Codespace.
+            CODESPACE_NAME: ${CODESPACE_NAME:-}
+            GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: ${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}
         volumes:
             - wwebjs-data:/data
         shm_size: '512mb'

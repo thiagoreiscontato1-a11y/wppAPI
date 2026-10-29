@@ -159,3 +159,13 @@ test('sem APP_PASSWORD a interface abre direto', async (t) => {
   assert.equal((await request('/', { headers: { Accept: 'text/html' } })).status, 200);
   assert.equal((await (await request('/api/status')).json()).authEnabled, false);
 });
+
+test('atrás do proxy do Codespaces (Host reescrito) o tempo real e o login funcionam', async (t) => {
+  const codespace = 'https://ideal-space-xyz-3000.app.github.dev';
+  const { chat, request } = await startServer({ appPassword: 'segredo', allowedOrigins: [/^https:\/\/ideal-space-xyz-\d+\.app\.github\.dev$/] });
+  t.after(() => chat.close());
+  const headers = { Origin: codespace, Host: 'localhost:3000' };
+  assert.equal((await request('/api/login', { method: 'POST', json: { user: 'admin', password: 'segredo' }, headers })).status, 200);
+  assert.equal((await request('/socket.io/?EIO=4&transport=polling', { headers })).status, 200);
+  assert.equal((await request('/api/restart', { method: 'POST', headers: { Origin: 'https://evil.example', Host: 'localhost:3000' } })).status, 403);
+});

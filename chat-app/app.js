@@ -6,7 +6,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { Server } = require('socket.io');
-const { createAuth, isSameOrigin } = require('./lib/auth');
+const { createAuth, createOriginCheck } = require('./lib/auth');
 const { createCache } = require('./lib/cache');
 const { profilePictureExpiry, parseByteRange, mediaResponseHeaders, isPlayableUpload } = require('./lib/media');
 const { serializeMessage, fetchMessagesPage, createMessageSerializer } = require('./lib/messages');
@@ -28,15 +28,17 @@ function createChatServer({
   appPassword = '',
   maxUploadBytes = 32 * 1024 * 1024,
   trustProxy = 'loopback, uniquelocal',
+  allowedOrigins = [],
   ffmpegPath = 'ffmpeg',
   logger = console,
   sessionOptions = {},
 }) {
   const app = express();
   const server = http.createServer(app);
+  const isAllowedOrigin = createOriginCheck({ allowedOrigins, logger });
   // Recusa conexões em tempo real abertas por outros sites (sequestro de WebSocket).
-  const io = new Server(server, { allowRequest: (req, callback) => callback(null, isSameOrigin(req)) });
-  const auth = createAuth({ user: appUser, password: appPassword });
+  const io = new Server(server, { allowRequest: (req, callback) => callback(null, isAllowedOrigin(req)) });
+  const auth = createAuth({ user: appUser, password: appPassword, isAllowedOrigin });
   const session = createWhatsAppSession({ Client, LocalAuth, authPath, logger, ...sessionOptions });
   const profilePictures = createCache({ maxEntries: 2000 });
   const profilePictureRequests = new Map();

@@ -106,6 +106,7 @@ Quando o WhatsApp Web muda, a `whatsapp-web.js` costuma lançar correções em p
 | `WWEBJS_AUTH_PATH` | `chat-app/.wwebjs_auth` (`/data/.wwebjs_auth` no Docker) | Onde a sessão do WhatsApp é salva |
 | `PUPPETEER_EXECUTABLE_PATH` | Chromium do Puppeteer (`/usr/bin/chromium` no Docker) | Navegador usado |
 | `DOMAIN` | — | Domínio para o HTTPS do Caddy |
+| `ALLOWED_ORIGINS` | — | Endereços extras aceitos como o próprio chat (ex.: `https://chat.exemplo.com`), para proxies que reescrevem o cabeçalho `Host`. O endereço do GitHub Codespaces é aceito automaticamente. Se a página ficar em "Reconectando ao servidor…", o log mostra qual origem foi recusada |
 | `TRUST_PROXY` | `loopback, uniquelocal` | De quais proxies aceitar `X-Forwarded-For`/`X-Forwarded-Proto` (o padrão cobre o Caddy no Docker). Veja os valores aceitos em <https://expressjs.com/en/guide/behind-proxies.html> |
 
 O endpoint `/healthz` responde sem senha, para *health checks*.

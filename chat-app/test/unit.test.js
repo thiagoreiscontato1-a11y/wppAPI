@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createCache } = require('../lib/cache');
 const { profilePictureExpiry, parseByteRange, mediaResponseHeaders, isPlayableUpload } = require('../lib/media');
 const { serializeMessage, fetchMessagesPage, createMessageSerializer } = require('../lib/messages');
-const { createLoginLimiter, isSameOrigin, LOGIN_MAX_FAILURES_PER_IP, LOGIN_MAX_FAILURES_GLOBAL } = require('../lib/auth');
+const { createLoginLimiter, createOriginCheck, isSameOrigin, codespacesOrigin, LOGIN_MAX_FAILURES_PER_IP, LOGIN_MAX_FAILURES_GLOBAL } = require('../lib/auth');
 const { makeHistory } = require('./helpers/fake-whatsapp');
 
 test('cache expira itens, guarda null e descarta os menos usados', () => {
@@ -126,4 +126,22 @@ test('verificação de origem', () => {
   assert.equal(isSameOrigin(req({ origin: 'https://evil.example' })), false);
   assert.equal(isSameOrigin(req({ referer: 'https://evil.example/x' })), false);
   assert.equal(isSameOrigin(req({ origin: 'lixo' })), false);
+});
+
+test('Codespaces e ALLOWED_ORIGINS liberam proxies que reescrevem o Host', () => {
+  const codespaces = codespacesOrigin({ CODESPACE_NAME: 'ideal-space-xyz', GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: 'app.github.dev' });
+  const req = (origin) => ({ headers: { host: 'localhost:3000', origin } });
+  assert.equal(isSameOrigin(req('https://ideal-space-xyz-3000.app.github.dev')), false, 'sem liberação o Host reescrito é recusado');
+  assert.equal(isSameOrigin(req('https://ideal-space-xyz-3000.app.github.dev'), [codespaces]), true);
+  assert.equal(isSameOrigin(req('https://outro-space-3000.app.github.dev'), [codespaces]), false);
+  assert.equal(isSameOrigin(req('https://ideal-space-xyz-3000.app.github.dev.evil.com'), [codespaces]), false);
+  assert.equal(isSameOrigin(req('https://chat.exemplo.com'), ['https://chat.exemplo.com']), true);
+  assert.equal(codespacesOrigin({}), null);
+
+  const warnings = [];
+  const check = createOriginCheck({ logger: { warn: (message) => warnings.push(message) } });
+  check(req('https://evil.example/a'));
+  check(req('https://evil.example/b'));
+  assert.equal(warnings.length, 1, 'avisa uma vez por origem');
+  assert.match(warnings[0], /https:\/\/evil\.example .*localhost:3000.*ALLOWED_ORIGINS/);
 });

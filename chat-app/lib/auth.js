@@ -27,10 +27,39 @@ function parseCookies(header) {
 }
 
 // Pedidos de navegador trazem Origin (ou Referer); se vierem de outro site, são recusados.
-function isSameOrigin(req) {
+// `allowedOrigins` (textos ou RegExp) libera endereços de proxies que reescrevem o Host,
+// como o encaminhamento de portas do GitHub Codespaces.
+function isSameOrigin(req, allowedOrigins = []) {
   const source = req.headers.origin || req.headers.referer;
   if (!source) return true;
-  try { return new URL(source).host === req.headers.host; } catch { return false; }
+  let url;
+  try { url = new URL(source); } catch { return false; }
+  if (url.host === req.headers.host) return true;
+  return allowedOrigins.some((allowed) => (allowed instanceof RegExp ? allowed.test(url.origin) : allowed === url.origin));
+}
+
+// Endereços públicos das portas do próprio Codespace (https://<codespace>-<porta>.<domínio>).
+function codespacesOrigin(env = process.env) {
+  const { CODESPACE_NAME: name, GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: domain } = env;
+  if (!name || !domain) return null;
+  const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^https://${escape(name)}-\\d+\\.${escape(domain)}$`);
+}
+
+// Recusa com um aviso no log (uma vez por origem) explicando como liberar o endereço.
+function createOriginCheck({ allowedOrigins = [], logger = console } = {}) {
+  const warned = new Set();
+  return function isAllowedOrigin(req) {
+    if (isSameOrigin(req, allowedOrigins)) return true;
+    const source = String(req.headers.origin || req.headers.referer);
+    let origin = source;
+    try { origin = new URL(source).origin; } catch {}
+    if (!warned.has(origin) && warned.size < 100) {
+      warned.add(origin);
+      logger.warn(`Pedido recusado: a origem ${origin} não corresponde ao servidor (${req.headers.host}). Se este endereço é o seu, adicione-o em ALLOWED_ORIGINS.`);
+    }
+    return false;
+  };
 }
 
 function createLoginLimiter() {
@@ -76,7 +105,7 @@ function createLoginLimiter() {
   };
 }
 
-function createAuth({ user, password }) {
+function createAuth({ user, password, isAllowedOrigin = isSameOrigin }) {
   const enabled = Boolean(password);
   const sessions = new Map();
   const limiter = createLoginLimiter();
@@ -120,7 +149,7 @@ function createAuth({ user, password }) {
   }
 
   function requireSameOrigin(req, res, next) {
-    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || isSameOrigin(req)) return next();
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || isAllowedOrigin(req)) return next();
     res.statusCode = 403;
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.end(JSON.stringify({ error: 'Pedido de outra origem recusado.' }));
@@ -160,4 +189,4 @@ function createAuth({ user, password }) {
   return { enabled, isAuthenticated, requireLogin, requireSameOrigin, login, logout };
 }
 
-module.exports = { createAuth, createLoginLimiter, isSameOrigin, LOGIN_MAX_FAILURES_PER_IP, LOGIN_MAX_FAILURES_GLOBAL };
+module.exports = { createAuth, createLoginLimiter, createOriginCheck, isSameOrigin, codespacesOrigin, LOGIN_MAX_FAILURES_PER_IP, LOGIN_MAX_FAILURES_GLOBAL };

@@ -1,6 +1,7 @@
 const path = require('path');
 const { Client, LocalAuth, MessageMedia } = require('../index.js');
 const { createChatServer } = require('./app');
+const { codespacesOrigin } = require('./lib/auth');
 
 const port = Number(process.env.PORT || 3000);
 const appPassword = process.env.APP_PASSWORD || '';
@@ -11,6 +12,11 @@ if (!appPassword && process.env.NODE_ENV === 'production') {
 }
 if (!appPassword) console.warn('APP_PASSWORD não definida: a interface está sem senha. Use apenas em ambiente privado.');
 
+// Endereços extras aceitos como "mesmo site" (proxies que reescrevem o Host, como o Codespaces).
+const allowedOrigins = String(process.env.ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim().replace(/\/+$/, '')).filter(Boolean);
+const codespaces = codespacesOrigin();
+if (codespaces) allowedOrigins.push(codespaces);
+
 const chat = createChatServer({
   Client,
   LocalAuth,
@@ -20,6 +26,7 @@ const chat = createChatServer({
   appPassword,
   maxUploadBytes: Number(process.env.MAX_UPLOAD_MB || 32) * 1024 * 1024,
   trustProxy: process.env.TRUST_PROXY || 'loopback, uniquelocal',
+  allowedOrigins,
   ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
 });
 
