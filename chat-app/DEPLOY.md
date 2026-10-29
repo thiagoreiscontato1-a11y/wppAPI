@@ -10,6 +10,8 @@ O chat roda um Chromium completo (WhatsApp Web), precisa de **pelo menos 1 GB de
 
 > ⚠️ **Antes de publicar:** a interface dá acesso total ao WhatsApp conectado (ler e enviar mensagens). Por isso o servidor **não inicia sem `APP_PASSWORD`** dentro do Docker. Use uma senha forte e prefira HTTPS (passo 5), porque em HTTP simples a senha trafega sem criptografia.
 >
+> Proteções incluídas: tela de login com sessão em cookie `HttpOnly`, bloqueio de 15 minutos após 5 senhas erradas por IP (e de todos os logins após 50 falhas em 15 minutos, caso o IP não seja confiável), recusa de pedidos e conexões em tempo real vindos de outros sites, e arquivos recebidos potencialmente perigosos (HTML, SVG etc.) são sempre baixados, nunca abertos no navegador.
+>
 > O `whatsapp-web.js` não é oficial. O WhatsApp pode restringir números que usam automação, sobretudo a partir de IPs de datacenter. Prefira um número de testes.
 
 ## 1. Criar a VM na Oracle Cloud
@@ -63,7 +65,7 @@ docker compose up -d --build
 docker compose logs -f chat
 ```
 
-Acesse `http://IP_DO_SERVIDOR:3000`, entre com `APP_USER` / `APP_PASSWORD` e leia o QR code em **WhatsApp → Aparelhos conectados → Conectar aparelho**. A sessão fica no volume `wwebjs-data` e sobrevive a reinícios e atualizações.
+Acesse `http://IP_DO_SERVIDOR:3000`, entre na tela de login com `APP_USER` / `APP_PASSWORD` e leia o QR code em **WhatsApp → Aparelhos conectados → Conectar aparelho**. A sessão fica no volume `wwebjs-data` e sobrevive a reinícios e atualizações.
 
 ## 5. HTTPS gratuito (recomendado)
 
@@ -102,5 +104,6 @@ docker volume rm wppapi_wwebjs-data                        # apagar a sessão do
 | `WWEBJS_AUTH_PATH` | `chat-app/.wwebjs_auth` (`/data/.wwebjs_auth` no Docker) | Onde a sessão do WhatsApp é salva |
 | `PUPPETEER_EXECUTABLE_PATH` | Chromium do Puppeteer (`/usr/bin/chromium` no Docker) | Navegador usado |
 | `DOMAIN` | — | Domínio para o HTTPS do Caddy |
+| `TRUST_PROXY` | `loopback, uniquelocal` | De quais proxies aceitar `X-Forwarded-For`/`X-Forwarded-Proto` (o padrão cobre o Caddy no Docker). Veja os valores aceitos em <https://expressjs.com/en/guide/behind-proxies.html> |
 
 O endpoint `/healthz` responde sem senha, para *health checks*.

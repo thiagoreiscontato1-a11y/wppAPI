@@ -5,14 +5,15 @@ const fs = require('fs/promises');
 const os = require('os');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const crypto = require('crypto');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('../index.js');
+const { createAuth, isSameOrigin } = require('./auth');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// Recusa conexões em tempo real abertas por outros sites (sequestro de WebSocket).
+const io = new Server(server, { allowRequest: (req, callback) => callback(null, isSameOrigin(req)) });
 const port = Number(process.env.PORT || 3000);
 const execFileAsync = promisify(execFile);
 const authPath = process.env.WWEBJS_AUTH_PATH || path.join(__dirname, '.wwebjs_auth');
@@ -25,31 +26,26 @@ if (!appPassword && process.env.NODE_ENV === 'production') {
 }
 if (!appPassword) console.warn('APP_PASSWORD não definida: a interface está sem senha. Use apenas em ambiente privado.');
 
-function safeEqual(a, b) {
-  const left = crypto.createHash('sha256').update(String(a)).digest();
-  const right = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(left, right);
-}
+const auth = createAuth({ user: appUser, password: appPassword });
+const STICKER_MAX_BYTES = 5 * 1024 * 1024;
+const MEDIA_INLINE_TYPES = /^(image\/(jpeg|png|gif|webp)|video\/[\w.+-]+|audio\/[\w.+-]+|application\/pdf)$/;
 
-function requireLogin(req, res, next) {
-  if (!appPassword) return next();
-  const [scheme, encoded] = String(req.headers.authorization || '').split(' ');
-  if (scheme === 'Basic' && encoded) {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
-    const separator = decoded.indexOf(':');
-    const user = decoded.slice(0, separator);
-    const password = decoded.slice(separator + 1);
-    if (separator >= 0 && safeEqual(user, appUser) && safeEqual(password, appPassword)) return next();
-  }
-  res.statusCode = 401;
-  res.setHeader('WWW-Authenticate', 'Basic realm="WPPAPI Chat", charset="UTF-8"');
-  res.end('Acesso restrito.');
-}
-
+// Atrás do Caddy (rede interna do Docker) o IP real do visitante vem em X-Forwarded-For.
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback, uniquelocal');
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 app.get('/healthz', (_req, res) => res.json({ ok: true, state }));
-app.use(requireLogin);
-io.engine.use(requireLogin);
+app.use(auth.requireSameOrigin);
+app.use(auth.requireLogin);
+io.engine.use(auth.requireLogin);
 app.use(express.json({ limit: '10mb' }));
+app.post('/api/login', auth.login);
+app.post('/api/session/logout', auth.logout);
 app.use(express.static(path.join(__dirname, 'public')));
 
 let qrDataUrl = null;
@@ -104,7 +100,7 @@ async function getProfilePictureWithRetry(chatId) {
 }
 
 function statusPayload() {
-  return { state, qrDataUrl, error: lastError, loadingPercent, me, maxUploadBytes };
+  return { state, qrDataUrl, error: lastError, loadingPercent, me, maxUploadBytes, authEnabled: auth.enabled };
 }
 
 function publishStatus() {
@@ -387,10 +383,12 @@ app.get('/api/media/:messageId', async (req, res) => {
     res.setHeader('Content-Type', media.mimetype);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'private, max-age=300');
-    if (media.filename) {
-      const safeName = media.filename.replace(/[\r\n"\\]/g, '_');
-      res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(media.filename)}`);
-    }
+    // Arquivos recebidos podem ser HTML ou SVG com scripts: só tipos seguros abrem no navegador,
+    // os demais são baixados, e nada servido daqui roda scripts na origem do chat.
+    const inline = MEDIA_INLINE_TYPES.test(media.mimetype);
+    if (media.mimetype !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+    const safeName = (media.filename || 'arquivo').replace(/[\r\n"\\]/g, '_');
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(media.filename || 'arquivo')}`);
     const range = parseByteRange(req.headers.range, buffer.length);
     if (range?.invalid) {
       res.setHeader('Content-Range', `bytes */${buffer.length}`);
@@ -495,7 +493,8 @@ app.post('/api/chats/:id/stickers', async (req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   const { data, mimetype, filename, quotedMessageId } = req.body || {};
   if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Selecione uma imagem para a figurinha.' });
-  if (!String(mimetype || '').startsWith('image/')) return res.status(400).json({ error: 'O arquivo precisa ser uma imagem.' });
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(String(mimetype || ''))) return res.status(400).json({ error: 'Escolha uma imagem PNG, JPEG ou WebP.' });
+  if (Buffer.byteLength(data, 'base64') > STICKER_MAX_BYTES) return res.status(413).json({ error: 'A imagem da figurinha deve ter até 5 MB.' });
   try {
     const media = new MessageMedia(mimetype, data, filename || 'figurinha');
     const options = { sendMediaAsSticker: true };

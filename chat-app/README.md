@@ -18,11 +18,12 @@ O comando `npm run setup` instala as dependências de produção da biblioteca l
 
 ## Publicar em um servidor
 
-Para hospedar o chat em um servidor gratuito (Oracle Cloud Always Free, com Docker e HTTPS), siga o guia [DEPLOY.md](DEPLOY.md). Fora do Codespaces, defina sempre `APP_PASSWORD`: ela protege a interface com usuário e senha.
+Para hospedar o chat em um servidor gratuito (Oracle Cloud Always Free, com Docker e HTTPS), siga o guia [DEPLOY.md](DEPLOY.md). Fora do Codespaces, defina sempre `APP_PASSWORD`: com ela a interface exige login (usuário `APP_USER`, padrão `admin`).
 
 ## Observações
 
-- Esta é uma prévia para testes; o acesso é protegido apenas por usuário e senha básicos (`APP_USER`/`APP_PASSWORD`), sem persistência de mensagens, envio de mídia nem controles de produção.
+- Esta é uma prévia para testes, sem persistência de mensagens nem controles de produção. Com `APP_PASSWORD` definida, a interface abre uma tela de login; a sessão dura 7 dias (ou até clicar em **Sair**) e é encerrada se o servidor reiniciar. Após 5 senhas erradas, o IP fica bloqueado por 15 minutos.
+- O botão **WhatsApp** na barra lateral desconecta o celular do servidor; o botão **Sair** apenas encerra o login nesta interface.
 - As mensagens são enviadas pela conta WhatsApp que escanear o QR code.
 - Mantenha o Codespace privado e nunca publique a pasta `.wwebjs_auth`: ela contém credenciais da sessão.
 - Para encerrar, pare o processo no terminal. Use o botão de saída para desconectar o WhatsApp.

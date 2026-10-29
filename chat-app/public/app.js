@@ -220,6 +220,7 @@ function readFileAsDataUrl(file) {
 function displayStatus(data) {
   statusState = data.state;
   if (Number.isFinite(data.maxUploadBytes)) maxUploadBytes = data.maxUploadBytes;
+  $('sessionLogoutBtn').classList.toggle('hidden', !data.authEnabled);
   if (data.me) {
     myName = data.me.name || '';
     const avatar = document.querySelector('.me-avatar');
@@ -297,11 +298,13 @@ document.addEventListener('visibilitychange', () => {
   markChatSeen(activeChat.id);
   renderChats();
 });
-socket.on('connect_error', () => showToast('Reconectando ao servidor…'));
+// A sessão pode ter expirado: api() leva para a tela de login nesse caso.
+socket.on('connect_error', () => { showToast('Reconectando ao servidor…'); api('/api/status').catch(() => {}); });
 
 async function api(url, options) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401 && data.login) { location.replace('/login.html'); throw new Error(data.error); }
   if (!response.ok) throw new Error(data.error || 'Não foi possível concluir a ação.');
   return data;
 }
@@ -562,6 +565,10 @@ $('messageNotice').addEventListener('keydown', (event) => {
 });
 $('messageNotice').tabIndex = 0;
 $('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar esta sessão do WhatsApp?')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
+$('sessionLogoutBtn').addEventListener('click', async () => {
+  try { await api('/api/session/logout', { method: 'POST' }); } catch {}
+  location.replace('/login.html');
+});
 $('retryBtn').addEventListener('click', async () => {
   els.retry.classList.add('hidden');
   els.spinner.classList.remove('hidden');

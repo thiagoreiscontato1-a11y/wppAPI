@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#464775" />
+  <title>WPPAPI | Entrar</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="login-page">
+  <main class="overlay login-overlay">
+    <form id="loginForm" class="connect-card login-card" novalidate>
+      <div class="connect-logo">W</div>
+      <p class="eyebrow">WPPAPI CHAT</p>
+      <h2>Entrar</h2>
+      <p>Use o usuário e a senha definidos em <code>APP_USER</code> e <code>APP_PASSWORD</code>.</p>
+      <label class="login-field"><span>Usuário</span><input id="loginUser" name="user" autocomplete="username" required autofocus /></label>
+      <label class="login-field"><span>Senha</span><input id="loginPassword" name="password" type="password" autocomplete="current-password" required /></label>
+      <div id="loginError" class="connect-error hidden" role="alert"></div>
+      <button id="loginSubmit" class="retry-button login-submit" type="submit">Entrar</button>
+    </form>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>
