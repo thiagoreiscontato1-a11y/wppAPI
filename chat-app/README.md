@@ -16,9 +16,13 @@ Abra a porta **3000** na aba *Ports* do Codespaces. No primeiro acesso, leia o Q
 
 O comando `npm run setup` instala as dependências de produção da biblioteca local, instala o FFmpeg (usado para converter GIFs em vídeo animado), instala as dependências da interface e baixa o Chrome usado pelo Puppeteer. Na configuração do Codespaces, as bibliotecas do sistema necessárias ao Chrome são instaladas no primeiro provisionamento do contêiner.
 
+## Publicar em um servidor
+
+Para hospedar o chat em um servidor gratuito (Oracle Cloud Always Free, com Docker e HTTPS), siga o guia [DEPLOY.md](DEPLOY.md). Fora do Codespaces, defina sempre `APP_PASSWORD`: ela protege a interface com usuário e senha.
+
 ## Observações
 
-- Esta é uma prévia para testes; não possui login próprio, persistência de mensagens, envio de mídia nem controles de produção.
+- Esta é uma prévia para testes; o acesso é protegido apenas por usuário e senha básicos (`APP_USER`/`APP_PASSWORD`), sem persistência de mensagens, envio de mídia nem controles de produção.
 - As mensagens são enviadas pela conta WhatsApp que escanear o QR code.
 - Mantenha o Codespace privado e nunca publique a pasta `.wwebjs_auth`: ela contém credenciais da sessão.
 - Para encerrar, pare o processo no terminal. Use o botão de saída para desconectar o WhatsApp.

@@ -5,6 +5,7 @@ const fs = require('fs/promises');
 const os = require('os');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('../index.js');
@@ -14,7 +15,40 @@ const server = http.createServer(app);
 const io = new Server(server);
 const port = Number(process.env.PORT || 3000);
 const execFileAsync = promisify(execFile);
-const authPath = path.join(__dirname, '.wwebjs_auth');
+const authPath = process.env.WWEBJS_AUTH_PATH || path.join(__dirname, '.wwebjs_auth');
+const appUser = process.env.APP_USER || 'admin';
+const appPassword = process.env.APP_PASSWORD || '';
+
+if (!appPassword && process.env.NODE_ENV === 'production') {
+  console.error('Defina a variável APP_PASSWORD antes de publicar o chat: sem ela qualquer pessoa com o link acessa o WhatsApp.');
+  process.exit(1);
+}
+if (!appPassword) console.warn('APP_PASSWORD não definida: a interface está sem senha. Use apenas em ambiente privado.');
+
+function safeEqual(a, b) {
+  const left = crypto.createHash('sha256').update(String(a)).digest();
+  const right = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(left, right);
+}
+
+function requireLogin(req, res, next) {
+  if (!appPassword) return next();
+  const [scheme, encoded] = String(req.headers.authorization || '').split(' ');
+  if (scheme === 'Basic' && encoded) {
+    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+    const separator = decoded.indexOf(':');
+    const user = decoded.slice(0, separator);
+    const password = decoded.slice(separator + 1);
+    if (separator >= 0 && safeEqual(user, appUser) && safeEqual(password, appPassword)) return next();
+  }
+  res.statusCode = 401;
+  res.setHeader('WWW-Authenticate', 'Basic realm="WPPAPI Chat", charset="UTF-8"');
+  res.end('Acesso restrito.');
+}
+
+app.get('/healthz', (_req, res) => res.json({ ok: true, state }));
+app.use(requireLogin);
+io.engine.use(requireLogin);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -356,7 +390,9 @@ server.listen(port, '0.0.0.0', () => {
   startClient();
 });
 
-process.on('SIGINT', async () => {
+async function shutdown() {
   try { await client?.destroy(); } catch {}
   process.exit(0);
-});
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

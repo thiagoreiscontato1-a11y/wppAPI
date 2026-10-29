@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/.wwebjs_auth
+**/.wwebjs_cache
+**/.env
+**/*.log
+docs
+tests
+tools
