@@ -1,6 +1,16 @@
 const MESSAGE_FETCH_MAX = 2000;
 const WAVEFORM_BARS = 48;
 
+// Miniatura dos vídeos: o WhatsApp manda um JPEG pequeno em base64 no corpo da mensagem de mídia.
+// Só usa quando o conteúdo começa como um JPEG ("/9j/" em base64) e é pequeno.
+const THUMBNAIL_MAX_CHARS = 120 * 1024;
+function videoThumbnail(msg) {
+  const raw = msg._data?.body;
+  if (msg.type !== 'video' || !msg.hasMedia || typeof raw !== 'string') return null;
+  if (!raw.startsWith('/9j/') || raw.length > THUMBNAIL_MAX_CHARS || !/^[A-Za-z0-9+/=]+$/.test(raw)) return null;
+  return `data:image/jpeg;base64,${raw}`;
+}
+
 // Forma de onda das mensagens de voz, reduzida a WAVEFORM_BARS valores de 0 a 100.
 // O WhatsApp guarda um Uint8Array, que pode chegar como array ou objeto com índices; formato desconhecido vira null.
 function normalizeWaveform(raw) {
@@ -33,6 +43,7 @@ function serializeMessage(msg) {
     hasMedia: Boolean(msg.hasMedia),
     filename: msg._data?.filename || null,
     duration: Number(msg.duration ?? msg._data?.duration) || null,
+    thumbnail: videoThumbnail(msg),
     waveform: normalizeWaveform(msg._data?.waveform),
     quotedMessage: quoted ? {
       id: quotedId,

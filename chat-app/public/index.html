@@ -36,6 +36,9 @@
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
     <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
   </svg>
 
@@ -151,6 +154,16 @@
     </div>
   </div>
 
+  <div id="lightbox" class="lightbox hidden" role="dialog" aria-modal="true" aria-label="Visualizar mídia">
+    <div class="lightbox-bar">
+      <span id="lightboxCaption" class="lightbox-caption"></span>
+      <a id="lightboxDownload" class="icon-button" href="#" download title="Baixar" aria-label="Baixar"><svg class="icon"><use href="#i-download"/></svg></a>
+      <button id="lightboxClose" class="icon-button" type="button" title="Fechar (Esc)" aria-label="Fechar"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div id="lightboxStage" class="lightbox-stage"></div>
+    <button id="lightboxPrev" class="lightbox-nav prev" type="button" aria-label="Mídia anterior"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+    <button id="lightboxNext" class="lightbox-nav next" type="button" aria-label="Próxima mídia"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+  </div>
   <div id="messageNotice" class="message-notice hidden" role="status" aria-live="polite" tabindex="0">
     <div class="notice-copy"><strong id="noticeTitle">Nova mensagem</strong><span id="noticeBody"></span></div>
     <button id="dismissNotice" class="icon-button" type="button" aria-label="Fechar aviso"><svg class="icon"><use href="#i-x"/></svg></button>

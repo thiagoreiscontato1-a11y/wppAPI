@@ -466,9 +466,10 @@ function createMessageRow(message) {
   const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
   let attachment = '';
   if (mediaUrl && message.isGif) attachment = `<video class="inline-video inline-gif" src="${mediaUrl}" autoplay loop muted playsinline></video>`;
-  else if (mediaUrl && message.type === 'sticker') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" /></a>`;
-  else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></a>`;
-  else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
+  else if (mediaUrl && message.type === 'sticker') attachment = `<img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" />`;
+  // Imagens e vídeos abrem por cima da conversa (visualizador), sem sair da página.
+  else if (mediaUrl && message.type === 'image') attachment = `<button class="media-open" type="button" data-kind="image" data-src="${mediaUrl}" aria-label="Ampliar imagem"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></button>`;
+  else if (mediaUrl && message.type === 'video') attachment = `<button class="media-open video-tile" type="button" data-kind="video" data-src="${mediaUrl}" aria-label="Assistir vídeo${message.duration ? ` de ${formatDuration(message.duration)}` : ''}">${message.thumbnail ? `<img class="video-thumb" src="${escapeHtml(message.thumbnail)}" alt="" />` : ''}<span class="video-play">${iconHtml('play')}</span>${message.duration ? `<span class="video-duration">${formatDuration(message.duration)}</span>` : ''}</button>`;
   else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = audioPlayerHtml(message, mediaUrl);
   else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">${iconHtml('file')}<span>${escapeHtml(message.filename || 'Abrir ou baixar documento')}</span></a>`;
   else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">${iconHtml('file')}<span>Abrir mídia (${escapeHtml(message.type || 'arquivo')})</span></a>`;
@@ -496,6 +497,8 @@ function createMessageRow(message) {
   row.innerHTML = `${avatar}${status}<div class="message-content"><div class="message-bubble" title="${escapeHtml(fullTime)}">${header}${quoteHtml}${attachment}${text}</div></div><div class="message-actions"><button class="icon-button reply-message-button" type="button" title="Responder" aria-label="Responder a esta mensagem">${iconHtml('reply')}</button></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
   row.querySelectorAll('.audio-player').forEach(setupAudioPlayer);
+  const mediaCaption = `${senderName}, ${message.timestamp ? `${dayLabel(message.timestamp).toLocaleLowerCase('pt-BR')} às ${time}` : ''}`;
+  row.querySelectorAll('.media-open').forEach((button) => { button.dataset.caption = mediaCaption; });
   if (message.fromMe) {
     const ack = mergeAck(messageAcks.get(message.id), message.ack);
     if (message.id) messageAcks.set(message.id, ack);
@@ -617,6 +620,68 @@ function setupAudioPlayer(player) {
   speedButton.textContent = `${String(audioRate).replace('.', ',')}×`;
   render();
 }
+// Visualizador de imagens e vídeos: fundo escurecido, fecha com Esc, X ou clique fora,
+// setas passam pelas mídias da conversa aberta.
+const lightbox = { items: [], index: 0, returnFocus: null };
+function showLightboxItem() {
+  const button = lightbox.items[lightbox.index];
+  if (!button) return;
+  const { kind, src, caption } = button.dataset;
+  $('lightboxStage').innerHTML = kind === 'video'
+    ? `<video src="${src}" controls autoplay playsinline></video>`
+    : `<img src="${src}" alt="Imagem ampliada" />`;
+  $('lightboxCaption').textContent = caption || '';
+  $('lightboxDownload').href = src;
+  const many = lightbox.items.length > 1;
+  $('lightboxPrev').classList.toggle('hidden', !many);
+  $('lightboxNext').classList.toggle('hidden', !many);
+  $('lightboxPrev').disabled = lightbox.index === 0;
+  $('lightboxNext').disabled = lightbox.index === lightbox.items.length - 1;
+}
+function openLightbox(button) {
+  playingAudio?.pause();
+  lightbox.items = [...els.messages.querySelectorAll('.media-open')];
+  lightbox.index = Math.max(0, lightbox.items.indexOf(button));
+  lightbox.returnFocus = button;
+  showLightboxItem();
+  $('lightbox').classList.remove('hidden');
+  $('lightboxClose').focus();
+}
+function closeLightbox() {
+  if ($('lightbox').classList.contains('hidden')) return;
+  $('lightbox').classList.add('hidden');
+  $('lightboxStage').innerHTML = ''; // para o vídeo
+  // Volta o foco para a mídia que estava na tela (pode ser outra, depois de navegar).
+  (lightbox.items[lightbox.index] || lightbox.returnFocus)?.focus();
+}
+function stepLightbox(delta) {
+  const next = lightbox.index + delta;
+  if (next < 0 || next >= lightbox.items.length) return;
+  lightbox.index = next;
+  showLightboxItem();
+}
+els.messages.addEventListener('click', (event) => {
+  const button = event.target.closest('.media-open');
+  if (button) openLightbox(button);
+});
+$('lightboxClose').addEventListener('click', closeLightbox);
+$('lightboxPrev').addEventListener('click', () => stepLightbox(-1));
+$('lightboxNext').addEventListener('click', () => stepLightbox(1));
+$('lightbox').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget || event.target.id === 'lightboxStage') closeLightbox();
+});
+$('lightbox').addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') { event.stopPropagation(); closeLightbox(); return; }
+  if (event.key === 'ArrowLeft' && event.target.tagName !== 'VIDEO') { stepLightbox(-1); event.preventDefault(); return; }
+  if (event.key === 'ArrowRight' && event.target.tagName !== 'VIDEO') { stepLightbox(1); event.preventDefault(); return; }
+  // Mantém o foco do teclado dentro do visualizador.
+  if (event.key !== 'Tab') return;
+  const focusable = [...event.currentTarget.querySelectorAll('a, button:not(:disabled):not(.hidden), video')];
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { last.focus(); event.preventDefault(); }
+  else if (!event.shiftKey && document.activeElement === last) { first.focus(); event.preventDefault(); }
+});
 function queueRowProfilePictures(root) {
   root.querySelectorAll('.message-row .profile-picture-slot').forEach((slot) => queueProfilePicture(slot.dataset.profileId));
 }
