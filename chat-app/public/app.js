@@ -15,6 +15,12 @@ let replyTarget = null;
 let renderedIds = new Set();
 const profilePictureCache = new Map();
 const profilePicturePending = new Set();
+const profilePictureRefresh = new Set();
+const profilePictureRetried = new Set();
+const PROFILE_PICTURE_TTL_MS = 30 * 60 * 1000;
+const messageAcks = new Map();
+const pendingNewChatMessages = [];
+let chatsReloadTimer;
 const profilePictureQueue = [];
 let profilePictureActive = 0;
 let profileObserver;
@@ -130,12 +136,26 @@ function applyProfilePicture(chatId, url) {
     img.alt = '';
     img.loading = 'lazy';
     img.onload = () => slot.classList.add('has-photo');
-    img.onerror = () => img.remove();
+    img.onerror = () => { img.remove(); refreshExpiredProfilePicture(chatId); };
     slot.appendChild(img);
   });
 }
+function cachedProfilePicture(chatId) {
+  const cached = profilePictureCache.get(chatId);
+  if (!cached || Date.now() - cached.at > PROFILE_PICTURE_TTL_MS) return undefined;
+  return cached.url;
+}
+// O link da foto pode ter expirado: pede um novo ao servidor uma única vez por contato.
+function refreshExpiredProfilePicture(chatId) {
+  if (profilePictureRetried.has(chatId)) return;
+  profilePictureRetried.add(chatId);
+  profilePictureCache.delete(chatId);
+  profilePictureRefresh.add(chatId);
+  queueProfilePicture(chatId);
+}
 function queueProfilePicture(chatId) {
-  if (profilePictureCache.has(chatId)) { applyProfilePicture(chatId, profilePictureCache.get(chatId)); return; }
+  const cached = cachedProfilePicture(chatId);
+  if (cached !== undefined) { applyProfilePicture(chatId, cached); return; }
   if (profilePicturePending.has(chatId)) return;
   profilePicturePending.add(chatId);
   profilePictureQueue.push(chatId);
@@ -144,10 +164,11 @@ function queueProfilePicture(chatId) {
 function processProfilePictureQueue() {
   while (profilePictureActive < 2 && profilePictureQueue.length) {
     const chatId = profilePictureQueue.shift();
+    const refresh = profilePictureRefresh.delete(chatId);
     profilePictureActive += 1;
-    api(`/api/chats/${encodeURIComponent(chatId)}/profile-picture`)
-      .then(({ url }) => { profilePictureCache.set(chatId, url || null); applyProfilePicture(chatId, url || null); })
-      .catch(() => { profilePictureCache.set(chatId, null); })
+    api(`/api/chats/${encodeURIComponent(chatId)}/profile-picture${refresh ? '?refresh=1' : ''}`)
+      .then(({ url }) => { profilePictureCache.set(chatId, { url: url || null, at: Date.now() }); applyProfilePicture(chatId, url || null); })
+      .catch(() => { profilePictureCache.set(chatId, { url: null, at: Date.now() }); })
       .finally(() => { profilePicturePending.delete(chatId); profilePictureActive -= 1; processProfilePictureQueue(); });
   }
 }
@@ -208,28 +229,60 @@ function displayStatus(data) {
     els.title.textContent = 'Celular conectado';
     els.text.textContent = Number.isFinite(data.loadingPercent) ? `Sincronizando conversas… ${data.loadingPercent}%` : 'WhatsApp autenticado. Aguardando a sincronização inicial…';
   }
-  else if (data.state === 'error' || data.state === 'disconnected') { els.title.textContent = 'Não foi possível conectar'; els.text.textContent = 'Confira a sessão do WhatsApp e tente iniciar novamente.'; }
+  else if (data.state === 'disconnected') { els.title.textContent = 'Conexão perdida'; els.text.textContent = 'Tentando reconectar automaticamente. Se demorar, toque em Tentar novamente.'; }
+  else if (data.state === 'error') { els.title.textContent = 'Não foi possível conectar'; els.text.textContent = 'Confira a sessão do WhatsApp e tente iniciar novamente.'; }
   else { els.title.textContent = 'Conectando ao WhatsApp'; els.text.textContent = 'Iniciando uma sessão segura no Codespace…'; }
 }
 socket.on('status', displayStatus);
+function notifyIncomingMessage(chat, message) {
+  if (message.fromMe || mutedChats.has(chat.id)) return;
+  showMessageNotification(chat, message);
+  playNotificationSound();
+  if (desktopNotificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
+    const notification = new Notification(chat.name || 'Nova mensagem', { body: messagePreview(message), tag: `wppapi-${chat.id}` });
+    notification.onclick = () => { window.focus(); openChat(chat.id); notification.close(); };
+  }
+}
+// Mensagem de uma conversa que ainda não está na lista: recarrega a lista e então notifica.
+function reloadChatsForNewMessage(chatId, message) {
+  pendingNewChatMessages.push({ chatId, message });
+  clearTimeout(chatsReloadTimer);
+  chatsReloadTimer = setTimeout(async () => {
+    const pending = pendingNewChatMessages.splice(0);
+    await loadChats();
+    pending.forEach((item) => {
+      const chat = chats.find((entry) => entry.id === item.chatId);
+      if (chat) notifyIncomingMessage(chat, item.message);
+    });
+  }, 500);
+}
+function markChatSeen(chatId) {
+  api(`/api/chats/${encodeURIComponent(chatId)}/seen`, { method: 'POST' }).catch(() => {});
+}
 socket.on('message', ({ chatId, message }) => {
   if (activeChat?.id === chatId) appendMessage(message);
   const chat = chats.find((item) => item.id === chatId);
-  if (chat) {
-    const isVisibleConversation = activeChat?.id === chatId && !document.hidden;
-    if (!message.fromMe && !isVisibleConversation) chat.unreadCount = (chat.unreadCount || 0) + 1;
-    chat.lastMessage = messagePreview(message);
-    chat.timestamp = message.timestamp;
-    renderChats();
-    if (!message.fromMe && !isVisibleConversation && !mutedChats.has(chatId)) {
-      showMessageNotification(chat, message);
-      playNotificationSound();
-      if (desktopNotificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification(chat.name || 'Nova mensagem', { body: messagePreview(message), tag: `wppapi-${chatId}` });
-        notification.onclick = () => { window.focus(); openChat(chatId); notification.close(); };
-      }
-    }
-  }
+  if (!chat) { reloadChatsForNewMessage(chatId, message); return; }
+  const isVisibleConversation = activeChat?.id === chatId && !document.hidden;
+  if (!message.fromMe && !isVisibleConversation) chat.unreadCount = (chat.unreadCount || 0) + 1;
+  if (!message.fromMe && isVisibleConversation) markChatSeen(chatId);
+  chat.lastMessage = messagePreview(message);
+  chat.timestamp = message.timestamp;
+  renderChats();
+  if (!isVisibleConversation) notifyIncomingMessage(chat, message);
+});
+socket.on('ack', ({ id, ack }) => {
+  if (!id) return;
+  const value = mergeAck(messageAcks.get(id), ack);
+  messageAcks.set(id, value);
+  const status = els.messages.querySelector(`.message-row[data-message-id="${CSS.escape(id)}"] .message-status`);
+  if (status) applyAckStatus(status, value);
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !activeChat?.unreadCount) return;
+  activeChat.unreadCount = 0;
+  markChatSeen(activeChat.id);
+  renderChats();
 });
 socket.on('connect_error', () => showToast('Reconectando ao servidor…'));
 
@@ -263,13 +316,18 @@ function renderChats() {
     });
   }, { root: els.chatList, rootMargin: '80px' });
   els.chatList.querySelectorAll('.profile-picture-slot').forEach((slot) => {
-    if (profilePictureCache.has(slot.dataset.profileId)) applyProfilePicture(slot.dataset.profileId, profilePictureCache.get(slot.dataset.profileId));
+    const cached = cachedProfilePicture(slot.dataset.profileId);
+    if (cached !== undefined) applyProfilePicture(slot.dataset.profileId, cached);
     else profileObserver.observe(slot);
   });
 }
 async function loadChats() {
   if (statusState !== 'ready') return;
-  try { chats = await api('/api/chats'); renderChats(); }
+  try {
+    chats = await api('/api/chats');
+    if (activeChat) activeChat = chats.find((chat) => chat.id === activeChat.id) || activeChat;
+    renderChats();
+  }
   catch (error) { els.chatList.innerHTML = `<div class="list-loading">${escapeHtml(error.message)}</div>`; }
 }
 function dayLabel(timestamp) {
@@ -280,9 +338,30 @@ function dayLabel(timestamp) {
   if (date.toDateString() === yesterday.toDateString()) return 'Ontem';
   return date.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
+// Confirmações só avançam (pendente → enviada → entregue → lida); -1 indica falha no envio.
+function mergeAck(previous, next) {
+  if (!Number.isInteger(next)) return previous ?? null;
+  if (next === -1 || !Number.isInteger(previous)) return next;
+  return Math.max(previous, next);
+}
+function applyAckStatus(element, ack) {
+  const [icon, label, variant] = ack === -1 ? ['!', 'Falha no envio', 'failed']
+    : ack === 0 ? ['◷', 'Enviando', 'pending']
+    : ack >= 3 ? ['✓✓', 'Lida', 'read']
+    : ack === 2 ? ['✓✓', 'Entregue', 'delivered']
+    : ['✓', 'Enviada', 'sent'];
+  element.textContent = icon;
+  element.title = label;
+  element.setAttribute('aria-label', label);
+  element.className = `message-status ${variant}`;
+}
+function isNearBottom() {
+  return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 120;
+}
 function appendMessage(message) {
   if (message.id && renderedIds.has(message.id)) return;
   if (message.id) renderedIds.add(message.id);
+  const shouldScroll = message.fromMe || isNearBottom();
   const time = timeLabel(message.timestamp);
   const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
   let attachment = '';
@@ -303,11 +382,17 @@ function appendMessage(message) {
   const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
     ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\d+$/, '') : 'Participante'))
     : (message.author || activeChat?.name || '');
-  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(message.fromMe ? 'T' : initials(senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status">✓✓</span>' : ''}</div></div>`;
+  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(message.fromMe ? 'T' : initials(senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</div></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
+  if (message.fromMe) {
+    if (message.id) row.dataset.messageId = message.id;
+    const ack = mergeAck(messageAcks.get(message.id), message.ack);
+    if (message.id) messageAcks.set(message.id, ack);
+    applyAckStatus(row.querySelector('.message-status'), ack);
+  }
   els.messages.appendChild(row);
   if (senderAvatarId) queueProfilePicture(senderAvatarId);
-  els.messages.scrollTop = els.messages.scrollHeight;
+  if (shouldScroll) els.messages.scrollTop = els.messages.scrollHeight;
 }
 async function openChat(id) {
   const chat = chats.find((item) => item.id === id);
@@ -336,6 +421,7 @@ async function openChat(id) {
     });
     els.messages.scrollTop = els.messages.scrollHeight;
     chat.unreadCount = 0; renderChats();
+    markChatSeen(id);
   } catch (error) { els.messages.innerHTML = `<div class="messages-loading">${escapeHtml(error.message)}</div>`; }
   els.input.focus();
 }
@@ -388,7 +474,11 @@ $('messageNotice').addEventListener('keydown', (event) => {
 });
 $('messageNotice').tabIndex = 0;
 $('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar esta sessão do WhatsApp?')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
-$('retryBtn').addEventListener('click', () => location.reload());
+$('retryBtn').addEventListener('click', async () => {
+  els.retry.classList.add('hidden');
+  els.spinner.classList.remove('hidden');
+  try { await api('/api/restart', { method: 'POST' }); } catch (error) { showToast(error.message); els.retry.classList.remove('hidden'); }
+});
 $('cancelReplyBtn').addEventListener('click', clearReplyTarget);
 $('stickerBtn').addEventListener('click', () => els.stickerInput.click());
 $('mediaBtn').addEventListener('click', () => els.mediaInput.click());

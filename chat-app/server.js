@@ -60,6 +60,22 @@ let client;
 const profilePictureCache = new Map();
 const profilePictureRequests = new Map();
 const contactNameCache = new Map();
+const PROFILE_PICTURE_TTL_MS = 60 * 60 * 1000;
+const PROFILE_PICTURE_MISS_TTL_MS = 10 * 60 * 1000;
+let reconnectTimer = null;
+let restartPromise = null;
+
+// Os links de foto do WhatsApp expiram (parâmetro hexadecimal `oe`); renova antes disso.
+function profilePictureExpiry(url) {
+  const now = Date.now();
+  if (!url) return now + PROFILE_PICTURE_MISS_TTL_MS;
+  let expiresAt = now + PROFILE_PICTURE_TTL_MS;
+  try {
+    const oe = parseInt(new URL(url).searchParams.get('oe'), 16);
+    if (Number.isFinite(oe)) expiresAt = Math.min(expiresAt, oe * 1000 - 5 * 60 * 1000);
+  } catch {}
+  return Math.max(expiresAt, now + 60 * 1000);
+}
 
 async function getProfilePictureWithRetry(chatId) {
   const transientPattern = /execution context was destroyed|cannot find context with specified id|target closed|session closed|detached frame/i;
@@ -94,6 +110,7 @@ function serializeMessage(msg) {
     isGif: Boolean(msg._data?.isGif || msg.isGif || msg.type === 'gif'),
     fromMe: Boolean(msg.fromMe),
     timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
+    ack: Number.isInteger(msg.ack) ? msg.ack : null,
     author: msg._data?.notifyName || msg._data?.pushname || '',
     authorId: msg.author || null,
     hasMedia: Boolean(msg.hasMedia),
@@ -160,7 +177,7 @@ async function startClient() {
   state = 'starting';
   lastError = null;
   loadingPercent = null;
-  client = new Client({
+  const current = new Client({
     authStrategy: new LocalAuth({ clientId: 'wppapi-chat', dataPath: authPath }),
     puppeteer: {
       headless: true,
@@ -168,57 +185,93 @@ async function startClient() {
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     },
   });
+  client = current;
+  // Ignora eventos de um cliente antigo que já foi substituído por uma reconexão.
+  const on = (event, handler) => current.on(event, (...args) => {
+    if (client === current) return handler(...args);
+  });
 
-  client.on('qr', async (qr) => {
+  on('qr', async (qr) => {
     qrDataUrl = await QRCode.toDataURL(qr, { width: 260, margin: 1 });
     state = 'qr';
     publishStatus();
   });
-  client.on('authenticated', () => {
+  on('authenticated', () => {
     qrDataUrl = null;
     state = 'authenticated';
     publishStatus();
   });
-  client.on('loading_screen', (percent, label) => {
+  on('loading_screen', (percent, label) => {
     loadingPercent = Number.isFinite(Number(percent)) ? Number(percent) : null;
     console.log(`Sincronização do WhatsApp: ${loadingPercent ?? '?'}%${label ? ` (${label})` : ''}`);
     publishStatus();
   });
-  client.on('ready', () => {
+  on('ready', () => {
     qrDataUrl = null;
     loadingPercent = null;
     state = 'ready';
     publishStatus();
   });
-  client.on('auth_failure', (message) => {
+  on('auth_failure', (message) => {
     lastError = String(message);
     state = 'error';
     publishStatus();
   });
-  client.on('disconnected', (reason) => {
+  on('disconnected', (reason) => {
     state = 'disconnected';
     lastError = String(reason || 'Sessão desconectada');
     publishStatus();
+    scheduleReconnect(reason === 'LOGOUT' ? 20000 : 3000);
   });
-  client.on('message', async (msg) => {
+  on('message', async (msg) => {
     const message = await serializeMessageForChat(msg);
     io.emit('message', { chatId: msg.from, message });
   });
-  client.on('message_create', async (msg) => {
+  on('message_create', async (msg) => {
     if (msg.fromMe) {
       const message = await serializeMessageForChat(msg);
       io.emit('message', { chatId: msg.to, message });
     }
   });
-  client.on('message_ack', (msg, ack) => io.emit('ack', { id: msg.id?._serialized, ack }));
+  on('message_ack', (msg, ack) => io.emit('ack', { id: msg.id?._serialized, ack }));
   try {
-    await client.initialize();
+    await current.initialize();
   } catch (error) {
+    if (client !== current) return;
     console.error('Falha ao inicializar o WhatsApp:', error);
     state = 'error';
     lastError = error.message;
     publishStatus();
   }
+}
+
+// Após um LOGOUT a própria biblioteca costuma gerar um novo QR; só reinicia se isso não acontecer.
+function scheduleReconnect(delayMs) {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    if (state === 'disconnected') {
+      console.log('Sessão do WhatsApp caiu; reiniciando a conexão...');
+      restartClient();
+    }
+  }, delayMs);
+}
+
+function restartClient() {
+  restartPromise ||= (async () => {
+    clearTimeout(reconnectTimer);
+    const previous = client;
+    client = null;
+    state = 'starting';
+    lastError = null;
+    qrDataUrl = null;
+    loadingPercent = null;
+    publishStatus();
+    try { await previous?.destroy(); } catch {}
+    profilePictureCache.clear();
+    contactNameCache.clear();
+    startClient();
+  })().finally(() => { restartPromise = null; });
+  return restartPromise;
 }
 
 app.get('/api/status', (_req, res) => res.json({ state, qrDataUrl, error: lastError }));
@@ -228,16 +281,18 @@ app.get('/api/chats/:id/profile-picture', async (req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   const chatId = req.params.id;
   try {
-    if (!profilePictureCache.has(chatId)) {
+    const cached = profilePictureCache.get(chatId);
+    if (!cached || cached.expiresAt <= Date.now() || req.query.refresh) {
       let request = profilePictureRequests.get(chatId);
       if (!request) {
         request = getProfilePictureWithRetry(chatId)
           .finally(() => profilePictureRequests.delete(chatId));
         profilePictureRequests.set(chatId, request);
       }
-      profilePictureCache.set(chatId, await request || null);
+      const url = await request || null;
+      profilePictureCache.set(chatId, { url, expiresAt: profilePictureExpiry(url) });
     }
-    res.json({ url: profilePictureCache.get(chatId) });
+    res.json({ url: profilePictureCache.get(chatId).url });
   } catch (error) {
     console.warn(`Foto de perfil indisponível para ${chatId}: ${error.message}`);
     res.json({ url: null });
@@ -315,6 +370,14 @@ app.post('/api/chats/:id/messages', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+app.post('/api/chats/:id/seen', async (req, res) => {
+  if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
+  try {
+    await client.sendSeen(req.params.id);
+    res.json({ ok: true });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 app.post('/api/chats/:id/stickers', async (req, res) => {
   if (state !== 'ready') return res.status(409).json({ error: 'Conecte o WhatsApp primeiro.' });
   const { data, mimetype, filename, quotedMessageId } = req.body || {};
@@ -374,11 +437,14 @@ app.post('/api/chats/:id/media', async (req, res) => {
 app.post('/api/logout', async (_req, res) => {
   try {
     if (client) await client.logout();
-    state = 'disconnected';
-    qrDataUrl = null;
-    publishStatus();
+    restartClient();
     res.json({ ok: true });
   } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+app.post('/api/restart', (_req, res) => {
+  restartClient();
+  res.status(202).json({ ok: true });
 });
 
 io.on('connection', (socket) => {
