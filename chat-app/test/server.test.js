@@ -83,6 +83,19 @@ test('conversas, histórico paginado e marcar como lida', async (t) => {
   assert.ok(fake.calls.includes('seen:ana@c.us'));
 });
 
+test('conversas fixadas ficam no topo, a fixada por último primeiro', async (t) => {
+  const pinned = createFakeWhatsApp({ chats: [
+    { id: 'ana@c.us', name: 'Ana', timestamp: 30 },
+    { id: 'bia@c.us', name: 'Bia', timestamp: 10, pinnedAt: 100 },
+    { id: 'caio@c.us', name: 'Caio', timestamp: 20, pinnedAt: 200 },
+    { id: 'duda@c.us', name: 'Duda', timestamp: 40 },
+  ] });
+  const { chat, request } = await startServer(pinned);
+  t.after(() => chat.close());
+  const chats = await (await request('/api/chats')).json();
+  assert.deepEqual(chats.map((item) => item.id), ['caio@c.us', 'bia@c.us', 'duda@c.us', 'ana@c.us']);
+});
+
 test('envio de texto, arquivos e figurinhas', async (t) => {
   const { chat, fake, request } = await startServer();
   t.after(() => chat.close());

@@ -336,8 +336,9 @@ function chatAvatarHtml(chat) {
   return `<span class="avatar chat-avatar profile-picture-slot ${toneFor(chat.id)} ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}" aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span></span>`;
 }
 function chatCopyHtml(chat) {
-  const muted = mutedChats.has(chat.id) ? `<svg class="icon chat-muted" aria-label="Silenciada"><use href="#i-bell-off"/></svg>` : '';
-  return `<span class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></span><span class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${muted}${chat.unreadCount ? `<span class="unread" aria-label="${chat.unreadCount} não lidas">${chat.unreadCount}</span>` : ''}</span>`;
+  const muted = mutedChats.has(chat.id) ? `<svg class="icon chat-flag" aria-label="Silenciada"><use href="#i-bell-off"/></svg>` : '';
+  const pinned = chat.pinnedAt ? `<svg class="icon chat-flag" aria-label="Fixada"><use href="#i-pin"/></svg>` : '';
+  return `<span class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></span><span class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${muted}${pinned}${chat.unreadCount ? `<span class="unread" aria-label="${chat.unreadCount} não lidas">${chat.unreadCount}</span>` : ''}</span>`;
 }
 function chatRowFor(chat) {
   let entry = chatRows.get(chat.id);
@@ -386,7 +387,7 @@ function renderChats() {
     .filter((chat) => chatFilter !== 'unread' || chat.unreadCount)
     .filter((chat) => chatFilter !== 'groups' || chat.isGroup)
     .filter((chat) => `${chat.name} ${chat.number} ${chat.lastMessage}`.toLocaleLowerCase('pt-BR').includes(query))
-    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    .sort(compareChats);
   if (!shown.length) {
     const note = query ? 'Nenhuma conversa encontrada para essa busca.' : chatFilter === 'unread' ? 'Tudo lido por aqui.' : chatFilter === 'groups' ? 'Nenhum grupo nesta conta.' : 'Nenhuma conversa ainda.';
     els.chatList.innerHTML = `<div class="list-note">${note}</div>`;
@@ -405,6 +406,10 @@ function renderChats() {
     cursor.remove();
     cursor = next;
   }
+}
+// Mesma ordem do WhatsApp: fixadas no topo (a fixada por último primeiro), depois as mais recentes.
+function compareChats(a, b) {
+  return (b.pinnedAt || 0) - (a.pinnedAt || 0) || (b.timestamp || 0) - (a.timestamp || 0);
 }
 // Junta várias atualizações seguidas (rajada de mensagens) em um único redesenho por quadro.
 function scheduleRenderChats() {

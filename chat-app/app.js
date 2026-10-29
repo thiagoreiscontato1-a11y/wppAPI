@@ -165,13 +165,16 @@ function createChatServer({
             isGroup: Boolean(chat.groupMetadata || id.endsWith('@g.us')),
             unreadCount: Number(chat.unreadCount || 0),
             timestamp: Number(chat.t || 0),
+            // Hora em que a conversa foi fixada no WhatsApp (0 = não fixada).
+            pinnedAt: Number(chat.pin || 0),
             lastMessage: lastMessage?.body || lastMessage?.caption || '',
             number: chat.id?.user || '',
             profilePic: null,
           };
         }).filter((chat) => chat.id);
       });
-      result.sort((a, b) => b.timestamp - a.timestamp);
+      // Como no WhatsApp: fixadas no topo (a fixada por último primeiro), depois as mais recentes.
+      result.sort((a, b) => (b.pinnedAt || 0) - (a.pinnedAt || 0) || b.timestamp - a.timestamp);
       res.json(result);
     } catch (error) {
       logger.error('Falha ao carregar conversas do WhatsApp:', error);

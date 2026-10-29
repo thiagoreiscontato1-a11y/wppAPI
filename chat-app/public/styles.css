@@ -308,7 +308,7 @@ h1, h2, h3, p { margin: 0; }
 .chat-row.has-unread .chat-name { font-weight: 700; color: #ffffff; }
 .chat-row.has-unread .chat-preview { color: var(--side-ink); }
 .chat-row.has-unread .chat-time { color: var(--badge-bg); }
-.chat-muted { width: 14px; height: 14px; color: var(--side-muted); }
+.chat-flag { width: 14px; height: 14px; color: var(--side-muted); }
 .unread {
   min-width: 20px;
   height: 20px;
