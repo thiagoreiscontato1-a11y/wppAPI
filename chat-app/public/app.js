@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
   overlay: $('connectOverlay'), title: $('connectTitle'), text: $('connectText'), qrWrap: $('qrWrap'), qr: $('qrImage'),
   spinner: $('connectSpinner'), error: $('connectError'), retry: $('retryBtn'), chatList: $('chatList'), search: $('searchInput'),
-  empty: $('emptyState'), thread: $('thread'), conversation: document.querySelector('.conversation'), messages: $('messages'),
+  empty: $('emptyState'), thread: $('thread'), app: $('app'), messages: $('messages'),
   name: $('threadName'), meta: $('threadMeta'), avatar: $('threadAvatar'), input: $('messageInput'), composer: $('composer'),
   replyBar: $('replyBar'), replyAuthor: $('replyAuthor'), replyText: $('replyText'), stickerInput: $('stickerInput'),
 };
@@ -41,35 +41,35 @@ let notificationSoundEnabled = true;
 let inAppNotificationsEnabled = true;
 let desktopNotificationsEnabled = false;
 let mutedChats = new Set();
+let chatFilter = 'all';
 
 try { notificationSoundEnabled = localStorage.getItem('wppapi-chat-sound') !== 'off'; } catch {}
 try { inAppNotificationsEnabled = localStorage.getItem('wppapi-chat-inapp') !== 'off'; } catch {}
 try { desktopNotificationsEnabled = localStorage.getItem('wppapi-chat-desktop') === 'on'; } catch {}
 try { mutedChats = new Set(JSON.parse(localStorage.getItem('wppapi-chat-muted') || '[]')); } catch {}
 
+// theme.js já aplicou o tema salvo (ou o do sistema) antes da página aparecer.
 function setTheme(theme, persist = true) {
   const dark = theme === 'dark';
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  const button = $('themeToggle');
-  button.textContent = dark ? '☼' : '☾';
-  button.title = dark ? 'Ativar modo claro' : 'Ativar modo escuro';
-  button.setAttribute('aria-label', button.title);
-  button.setAttribute('aria-pressed', String(dark));
-  document.querySelector('meta[name="theme-color"]').content = dark ? '#1b1c22' : '#464775';
+  $('themeToggle').checked = dark;
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#0c201c' : '#10302a';
   if (persist) {
     try { localStorage.setItem('wppapi-chat-theme', dark ? 'dark' : 'light'); } catch {}
   }
 }
+setTheme(document.documentElement.dataset.theme, false);
 
-try { setTheme(localStorage.getItem('wppapi-chat-theme') || 'light', false); }
-catch { setTheme('light', false); }
+function iconHtml(name) { return `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`; }
+// Cor estável por contato, para avatares e nomes em grupos.
+function toneFor(id = '') {
+  let hash = 0;
+  for (const char of String(id)) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  return `tone-${hash % 6}`;
+}
 
 function updateSoundToggle() {
-  const button = $('soundToggle');
-  button.textContent = notificationSoundEnabled ? '♪' : '♩';
-  button.title = notificationSoundEnabled ? 'Desativar som das notificações' : 'Ativar som das notificações';
-  button.setAttribute('aria-label', button.title);
-  button.setAttribute('aria-pressed', String(notificationSoundEnabled));
+  $('soundToggle').checked = notificationSoundEnabled;
 }
 function unlockNotificationAudio() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -119,19 +119,24 @@ function updateNotificationSettings() {
   $('inAppNotificationsToggle').checked = inAppNotificationsEnabled;
   $('desktopNotificationsToggle').checked = desktopNotificationsEnabled;
   $('desktopNotificationsToggle').disabled = !('Notification' in window);
-  $('desktopNotificationHelp').textContent = !('Notification' in window) ? 'Este navegador não oferece notificações do Windows.' : Notification.permission === 'denied' ? 'Notificações bloqueadas nas permissões do navegador.' : 'O navegador pode pedir autorização para mostrar notificações.';
+  $('desktopNotificationHelp').textContent = !('Notification' in window) ? 'Este navegador não oferece notificações do sistema.' : Notification.permission === 'denied' ? 'Notificações bloqueadas nas permissões do navegador.' : 'O navegador pode pedir autorização para mostrar notificações.';
 }
 function updateMuteButton() {
   if (!activeChat) return;
   const muted = mutedChats.has(activeChat.id);
   const button = $('muteChatBtn');
-  button.textContent = muted ? '♬' : '♩';
+  button.innerHTML = iconHtml(muted ? 'bell-off' : 'bell');
   button.title = muted ? 'Ativar notificações desta conversa' : 'Silenciar conversa';
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(muted));
 }
 
-function initials(text = '?') { return text.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'; }
+// Iniciais do nome; para um número de telefone sem nome salvo, os dois últimos dígitos.
+function initials(text = '?') {
+  const words = text.trim().split(/\s+/).filter((part) => /\p{L}/u.test(part));
+  if (!words.length) return text.replace(/\D/g, '').slice(-2) || '?';
+  return words.slice(0, 2).map((part) => part.match(/\p{L}/u)[0]).join('').toUpperCase();
+}
 function escapeHtml(text = '') { return String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
 function showToast(message) { const el = $('toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600); }
 function applyPictureToSlot(slot, url) {
@@ -192,7 +197,8 @@ function processProfilePictureQueue() {
 function messagePreview(message) {
   if (message.body) return message.body;
   if (!message.hasMedia) return 'Mensagem';
-  return ({ sticker: 'Figurinha', image: 'Imagem', video: 'Vídeo', audio: 'Áudio', ptt: 'Mensagem de voz', document: 'Documento' })[message.type] || 'Mídia anexada';
+  const label = ({ sticker: 'Figurinha', image: 'Imagem', video: 'Vídeo', audio: 'Áudio', ptt: 'Mensagem de voz', document: 'Documento' })[message.type] || 'Mídia anexada';
+  return ['audio', 'ptt'].includes(message.type) && message.duration ? `${label} (${formatDuration(message.duration)})` : label;
 }
 function messageTypeLabel(type = '') {
   return ({
@@ -210,10 +216,13 @@ function messageTypeLabel(type = '') {
   })[type] || (type ? type.replaceAll('_', ' ') : 'Mensagem');
 }
 function setReplyTarget(message) {
+  // A barra de resposta diminui a área das mensagens; se estava no fim, continua no fim.
+  const stickToBottom = isNearBottom();
   replyTarget = message;
   els.replyAuthor.textContent = message.fromMe ? 'Você' : (message.author || activeChat?.name || 'Mensagem');
   els.replyText.textContent = messagePreview(message);
   els.replyBar.classList.remove('hidden');
+  if (stickToBottom) els.messages.scrollTop = els.messages.scrollHeight;
   els.input.focus();
 }
 function clearReplyTarget() {
@@ -236,10 +245,10 @@ function displayStatus(data) {
     myName = data.me.name || '';
     const avatar = document.querySelector('.me-avatar');
     avatar.textContent = initials(myName || 'Você');
-    avatar.title = myName ? `${myName} (você)` : 'Você';
+    $('meName').textContent = myName || 'Você';
   }
   const connected = data.state === 'ready';
-  $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando leitura do QR' : data.state === 'authenticated' ? 'Sincronizando WhatsApp' : 'Conectando ao WhatsApp';
+  $('sidebarStatus').textContent = connected ? 'WhatsApp conectado' : data.state === 'qr' ? 'Aguardando o QR code' : data.state === 'authenticated' ? 'Sincronizando conversas' : 'Conectando ao WhatsApp';
   $('sidebarDot').classList.toggle('ready', connected);
   if (connected) { els.overlay.classList.add('hidden'); loadChats(); return; }
   els.overlay.classList.remove('hidden');
@@ -249,7 +258,7 @@ function displayStatus(data) {
   els.retry.classList.toggle('hidden', data.state !== 'error' && data.state !== 'disconnected');
   els.error.classList.toggle('hidden', !data.error);
   els.error.textContent = data.error || '';
-  if (data.state === 'qr') { els.title.textContent = 'Conecte seu WhatsApp'; els.text.textContent = 'Leia o QR code abaixo com o celular que ficará conectado a este teste.'; }
+  if (data.state === 'qr') { els.title.textContent = 'Conecte seu WhatsApp'; els.text.textContent = 'Leia o QR code com o celular que vai ficar conectado a este servidor.'; }
   else if (data.state === 'authenticated') {
     els.title.textContent = 'Celular conectado';
     els.text.textContent = Number.isFinite(data.loadingPercent) ? `Sincronizando conversas… ${data.loadingPercent}%` : 'WhatsApp autenticado. Aguardando a sincronização inicial…';
@@ -328,18 +337,21 @@ function timeLabel(timestamp) {
 // A lista reaproveita uma linha por conversa e só redesenha o que mudou; assim uma mensagem
 // nova atualiza uma linha e a move para o topo, em vez de recriar a lista inteira.
 function chatAvatarHtml(chat) {
-  return `<div class="chat-avatar profile-picture-slot ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>${!chat.isGroup ? '<i class="presence"></i>' : ''}</div>`;
+  return `<span class="avatar chat-avatar profile-picture-slot ${toneFor(chat.id)} ${chat.isGroup ? 'group' : ''}" data-profile-id="${escapeHtml(chat.id)}" aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(chat.name))}</span></span>`;
 }
 function chatCopyHtml(chat) {
-  return `<div class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></div><div class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${chat.unreadCount ? `<span class="unread">${chat.unreadCount}</span>` : ''}</div>`;
+  const muted = mutedChats.has(chat.id) ? `<svg class="icon chat-flag" aria-label="Silenciada"><use href="#i-bell-off"/></svg>` : '';
+  const pinned = chat.pinnedAt ? `<svg class="icon chat-flag" aria-label="Fixada"><use href="#i-pin"/></svg>` : '';
+  return `<span class="chat-line"><span class="chat-name">${escapeHtml(chat.name)}</span><span class="chat-time">${timeLabel(chat.timestamp)}</span></span><span class="chat-line"><span class="chat-preview">${escapeHtml(chat.lastMessage || (chat.isGroup ? 'Grupo' : chat.number))}</span>${muted}${pinned}${chat.unreadCount ? `<span class="unread" aria-label="${chat.unreadCount} não lidas">${chat.unreadCount}</span>` : ''}</span>`;
 }
 function chatRowFor(chat) {
   let entry = chatRows.get(chat.id);
   if (!entry) {
-    const row = document.createElement('div');
+    const row = document.createElement('button');
+    row.type = 'button';
     row.className = 'chat-row';
     row.dataset.id = chat.id;
-    row.innerHTML = '<div class="chat-copy"></div>';
+    row.innerHTML = '<span class="chat-copy"></span>';
     row.addEventListener('click', () => openChat(chat.id));
     entry = { row, avatarHtml: '', copyHtml: '' };
     chatRows.set(chat.id, entry);
@@ -360,6 +372,8 @@ function chatRowFor(chat) {
     entry.copyHtml = copyHtml;
   }
   entry.row.classList.toggle('selected', activeChat?.id === chat.id);
+  entry.row.classList.toggle('has-unread', Boolean(chat.unreadCount));
+  if (activeChat?.id === chat.id) entry.row.setAttribute('aria-current', 'true'); else entry.row.removeAttribute('aria-current');
   return entry.row;
 }
 function renderChats() {
@@ -374,9 +388,16 @@ function renderChats() {
   }, { root: els.chatList, rootMargin: '80px' });
   const query = els.search.value.trim().toLocaleLowerCase('pt-BR');
   const shown = chats
+    .filter((chat) => chatFilter !== 'unread' || chat.unreadCount)
+    .filter((chat) => chatFilter !== 'groups' || chat.isGroup)
     .filter((chat) => `${chat.name} ${chat.number} ${chat.lastMessage}`.toLocaleLowerCase('pt-BR').includes(query))
-    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-  if (!shown.length) { els.chatList.innerHTML = '<div class="list-loading">Nenhuma conversa encontrada.</div>'; return; }
+    .sort(compareChats);
+  if (!shown.length) {
+    const note = query ? 'Nenhuma conversa encontrada para essa busca.' : chatFilter === 'unread' ? 'Tudo lido por aqui.' : chatFilter === 'groups' ? 'Nenhum grupo nesta conta.' : 'Nenhuma conversa ainda.';
+    els.chatList.innerHTML = `<div class="list-note">${note}</div>`;
+    return;
+  }
+  els.chatList.querySelector('.list-note')?.remove();
   // Percorre a lista na ordem desejada, movendo só as linhas que estão fora do lugar.
   let cursor = els.chatList.firstElementChild;
   shown.forEach((chat) => {
@@ -389,6 +410,10 @@ function renderChats() {
     cursor.remove();
     cursor = next;
   }
+}
+// Mesma ordem do WhatsApp: fixadas no topo (a fixada por último primeiro), depois as mais recentes.
+function compareChats(a, b) {
+  return (b.pinnedAt || 0) - (a.pinnedAt || 0) || (b.timestamp || 0) - (a.timestamp || 0);
 }
 // Junta várias atualizações seguidas (rajada de mensagens) em um único redesenho por quadro.
 function scheduleRenderChats() {
@@ -403,7 +428,7 @@ async function loadChats() {
     for (const id of chatRows.keys()) if (!ids.has(id)) chatRows.delete(id);
     renderChats();
   }
-  catch (error) { els.chatList.innerHTML = `<div class="list-loading">${escapeHtml(error.message)}</div>`; }
+  catch (error) { els.chatList.innerHTML = `<div class="list-note">${escapeHtml(error.message)}</div>`; }
 }
 function dayLabel(timestamp) {
   const date = new Date(timestamp * 1000);
@@ -420,32 +445,36 @@ function mergeAck(previous, next) {
   return Math.max(previous, next);
 }
 function applyAckStatus(element, ack) {
-  const [icon, label, variant] = ack === -1 ? ['!', 'Falha no envio', 'failed']
-    : ack === 0 ? ['◷', 'Enviando', 'pending']
-    : ack >= 3 ? ['✓✓', 'Lida', 'read']
-    : ack === 2 ? ['✓✓', 'Entregue', 'delivered']
-    : ['✓', 'Enviada', 'sent'];
-  element.textContent = icon;
+  const [icon, label, variant] = ack === -1 ? ['alert', 'Falha no envio', 'failed']
+    : ack === 0 ? ['clock', 'Enviando', 'pending']
+    : ack >= 3 ? ['check-check', 'Lida', 'read']
+    : ack === 2 ? ['check-check', 'Entregue', 'delivered']
+    : ['check', 'Enviada', 'sent'];
+  element.innerHTML = iconHtml(icon);
   element.title = label;
   element.setAttribute('aria-label', label);
   element.className = `message-status ${variant}`;
+}
+function messageTime(timestamp) {
+  return timestamp ? new Date(timestamp * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
 }
 function isNearBottom() {
   return els.messages.scrollHeight - els.messages.scrollTop - els.messages.clientHeight < 120;
 }
 function createMessageRow(message) {
-  const time = timeLabel(message.timestamp);
+  const time = messageTime(message.timestamp);
   const mediaUrl = message.hasMedia && message.id ? `/api/media/${encodeURIComponent(message.id)}` : '';
   let attachment = '';
   if (mediaUrl && message.isGif) attachment = `<video class="inline-video inline-gif" src="${mediaUrl}" autoplay loop muted playsinline></video>`;
-  else if (mediaUrl && message.type === 'sticker') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" /></a>`;
-  else if (mediaUrl && message.type === 'image') attachment = `<a class="media-link" href="${mediaUrl}" target="_blank" rel="noopener"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></a>`;
-  else if (mediaUrl && message.type === 'video') attachment = `<video class="inline-video" src="${mediaUrl}" controls preload="none"></video>`;
-  else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = `<audio class="inline-audio" src="${mediaUrl}" controls preload="none"></audio>`;
-  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">📎 ${escapeHtml(message.filename || 'Abrir ou baixar documento')}</a>`;
-  else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">📎 Abrir mídia (${escapeHtml(message.type || 'arquivo')})</a>`;
+  else if (mediaUrl && message.type === 'sticker') attachment = `<img class="inline-sticker" src="${mediaUrl}" alt="Figurinha" loading="lazy" />`;
+  // Imagens e vídeos abrem por cima da conversa (visualizador), sem sair da página.
+  else if (mediaUrl && message.type === 'image') attachment = `<button class="media-open" type="button" data-kind="image" data-src="${mediaUrl}" aria-label="Ampliar imagem"><img class="inline-image" src="${mediaUrl}" alt="${message.fromMe ? 'Imagem enviada' : 'Imagem recebida'}" loading="lazy" /></button>`;
+  else if (mediaUrl && message.type === 'video') attachment = `<button class="media-open video-tile" type="button" data-kind="video" data-src="${mediaUrl}" aria-label="Assistir vídeo${message.duration ? ` de ${formatDuration(message.duration)}` : ''}">${message.thumbnail ? `<img class="video-thumb" src="${escapeHtml(message.thumbnail)}" alt="" />` : ''}<span class="video-play">${iconHtml('play')}</span>${message.duration ? `<span class="video-duration">${formatDuration(message.duration)}</span>` : ''}</button>`;
+  else if (mediaUrl && ['audio', 'ptt'].includes(message.type)) attachment = audioPlayerHtml(message, mediaUrl);
+  else if (mediaUrl && message.type === 'document') attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener" download="${escapeHtml(message.filename || '')}">${iconHtml('file')}<span>${escapeHtml(message.filename || 'Abrir ou baixar documento')}</span></a>`;
+  else if (message.hasMedia) attachment = `<a class="document-link" href="${mediaUrl}" target="_blank" rel="noopener">${iconHtml('file')}<span>Abrir mídia (${escapeHtml(message.type || 'arquivo')})</span></a>`;
   const caption = message.type === 'document' && message.body === message.filename ? '' : message.body;
-  const content = `${attachment}${caption ? `${attachment ? '<br>' : ''}${escapeHtml(caption)}` : (!attachment ? `<span class="message-media">${escapeHtml(messageTypeLabel(message.type))}</span>` : '')}`;
+  const text = caption ? `<span class="message-text">${escapeHtml(caption)}</span>` : (!attachment ? `<span class="message-text message-system">${escapeHtml(messageTypeLabel(message.type))}</span>` : '');
   const quote = message.replyPreview || message.quotedMessage;
   const quoteText = quote ? (quote.body || (quote.hasMedia ? messagePreview(quote) : 'Mensagem')) : '';
   const quoteHtml = quote ? `<div class="quoted-message"><strong>${escapeHtml(quote.fromMe ? 'Você' : (quote.author || 'Mensagem citada'))}</strong><span>${escapeHtml(quoteText)}</span></div>` : '';
@@ -453,12 +482,23 @@ function createMessageRow(message) {
   row.className = `message-row ${message.fromMe ? 'mine' : ''}`;
   if (message.id) row.dataset.messageId = message.id;
   row.dataset.timestamp = String(message.timestamp || '');
-  const senderAvatarId = !message.fromMe && activeChat?.isGroup ? message.authorId : '';
+  // Como no Teams: mensagens dos outros com avatar e "nome  hora" no topo do balão; as suas à direita,
+  // com a hora no topo e o status do lado de fora. Seguidas da mesma pessoa, só o balão.
+  const senderId = message.fromMe ? 'me' : (message.authorId || 'them');
+  row.dataset.sender = senderId;
   const senderName = message.fromMe ? 'Você' : activeChat?.isGroup
     ? (message.author || (message.authorId ? message.authorId.split('@')[0].replace(/:\d+$/, '') : 'Participante'))
     : (message.author || activeChat?.name || '');
-  row.innerHTML = `<div class="mini-avatar ${senderAvatarId ? 'profile-picture-slot' : ''}" ${senderAvatarId ? `data-profile-id="${escapeHtml(senderAvatarId)}"` : ''}><span class="avatar-initials">${escapeHtml(initials(message.fromMe ? (myName || 'Você') : senderName))}</span></div><div class="message-content">${message.fromMe ? '' : `<div class="sender-name">${escapeHtml(senderName)}</div>`}<div class="message-bubble">${quoteHtml}${content}</div><div class="message-meta"><button class="reply-message-button" type="button" title="Responder a esta mensagem" aria-label="Responder a esta mensagem">↩</button>${time}${message.fromMe ? '<span class="message-status"></span>' : ''}</div></div>`;
+  const pictureId = message.fromMe ? '' : (message.authorId || (!activeChat?.isGroup ? activeChat?.id : ''));
+  const avatar = message.fromMe ? '' : `<span class="avatar avatar-sm ${toneFor(activeChat?.isGroup ? senderId : activeChat?.id)} ${pictureId ? 'profile-picture-slot' : ''}" ${pictureId ? `data-profile-id="${escapeHtml(pictureId)}"` : ''} aria-hidden="true"><span class="avatar-initials">${escapeHtml(initials(senderName))}</span></span>`;
+  const fullTime = message.timestamp ? new Date(message.timestamp * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const header = `<div class="message-header">${message.fromMe ? '' : `<span class="sender-name">${escapeHtml(senderName)}</span>`}<time>${time}</time></div>`;
+  const status = message.fromMe ? '<span class="message-status"></span>' : '';
+  row.innerHTML = `${avatar}${status}<div class="message-content"><div class="message-bubble" title="${escapeHtml(fullTime)}">${header}${quoteHtml}${attachment}${text}</div></div><div class="message-actions"><button class="icon-button reply-message-button" type="button" title="Responder" aria-label="Responder a esta mensagem">${iconHtml('reply')}</button></div>`;
   row.querySelector('.reply-message-button').addEventListener('click', () => setReplyTarget(message));
+  row.querySelectorAll('.audio-player').forEach(setupAudioPlayer);
+  const mediaCaption = `${senderName}, ${message.timestamp ? `${dayLabel(message.timestamp).toLocaleLowerCase('pt-BR')} às ${time}` : ''}`;
+  row.querySelectorAll('.media-open').forEach((button) => { button.dataset.caption = mediaCaption; });
   if (message.fromMe) {
     const ack = mergeAck(messageAcks.get(message.id), message.ack);
     if (message.id) messageAcks.set(message.id, ack);
@@ -466,23 +506,205 @@ function createMessageRow(message) {
   }
   return row;
 }
+// Player de áudio: botão de tocar, onda (mensagens de voz) ou linha de progresso (arquivos de áudio),
+// tempo e velocidade. O arquivo só é baixado ao tocar ou pular para um ponto.
+let playingAudio = null;
+let audioRate = 1;
+const AUDIO_RATES = [1, 1.5, 2];
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+  const total = Math.round(seconds);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+// Sem a onda real, desenha uma onda fixa a partir do id, só para dar forma à mensagem de voz.
+function placeholderWaveform(id = '') {
+  let seed = 0;
+  for (const char of String(id)) seed = (seed * 31 + char.codePointAt(0)) >>> 0;
+  return Array.from({ length: 48 }, () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return 25 + (seed >>> 16) % 70;
+  });
+}
+function audioPlayerHtml(message, url) {
+  const voice = message.type === 'ptt';
+  const label = voice ? 'mensagem de voz' : 'áudio';
+  const track = voice
+    ? (message.waveform || placeholderWaveform(message.id)).map((height) => `<i style="height:${Math.max(12, height)}%"></i>`).join('')
+    : '<span class="audio-line"><span class="audio-fill"></span></span>';
+  return `<div class="audio-player ${voice ? 'voice' : 'file'}" data-src="${url}" data-duration="${message.duration || ''}" data-label="${label}">`
+    + `<button class="audio-play" type="button" aria-label="Tocar ${label}">${iconHtml('play')}</button>`
+    + `<div class="audio-track" role="slider" tabindex="0" aria-label="Posição do ${label}" aria-valuemin="0" aria-valuemax="${Math.round(message.duration || 0)}" aria-valuenow="0" aria-valuetext="0:00">${track}</div>`
+    + `<span class="audio-time">${voice ? iconHtml('mic') : ''}<span>${formatDuration(message.duration || NaN)}</span></span>`
+    + `<button class="audio-speed" type="button" aria-label="Velocidade de reprodução: 1x">1×</button>`
+    + '</div>';
+}
+function setupAudioPlayer(player) {
+  const playButton = player.querySelector('.audio-play');
+  const track = player.querySelector('.audio-track');
+  const timeText = player.querySelector('.audio-time span');
+  const speedButton = player.querySelector('.audio-speed');
+  const bars = [...track.querySelectorAll('i')];
+  const fill = track.querySelector('.audio-fill');
+  const label = player.dataset.label;
+  let audio = null;
+  const knownDuration = Number(player.dataset.duration) || NaN;
+  const duration = () => (Number.isFinite(audio?.duration) && audio.duration > 0 ? audio.duration : knownDuration);
+  function render() {
+    const total = duration();
+    const current = audio?.currentTime || 0;
+    const fraction = Number.isFinite(total) && total > 0 ? Math.min(current / total, 1) : 0;
+    const playedBars = Math.round(fraction * bars.length);
+    bars.forEach((bar, index) => bar.classList.toggle('played', index < playedBars));
+    if (fill) fill.style.width = `${fraction * 100}%`;
+    // Parado no início mostra a duração; tocando (ou pausado no meio), o tempo decorrido.
+    const started = audio && (!audio.paused || current > 0);
+    timeText.textContent = formatDuration(started ? current : total);
+    track.setAttribute('aria-valuemax', String(Math.round(Number.isFinite(total) ? total : 0)));
+    track.setAttribute('aria-valuenow', String(Math.round(current)));
+    track.setAttribute('aria-valuetext', `${formatDuration(current)} de ${formatDuration(total)}`);
+  }
+  function setPlaying(playing) {
+    player.classList.toggle('playing', playing);
+    playButton.innerHTML = iconHtml(playing ? 'pause' : 'play');
+    playButton.setAttribute('aria-label', `${playing ? 'Pausar' : 'Tocar'} ${label}`);
+  }
+  function ensureAudio() {
+    if (audio) return audio;
+    audio = new Audio(player.dataset.src);
+    audio.preload = 'metadata';
+    audio.playbackRate = audioRate;
+    audio.addEventListener('loadedmetadata', render);
+    audio.addEventListener('timeupdate', render);
+    audio.addEventListener('play', () => { if (playingAudio && playingAudio !== audio) playingAudio.pause(); playingAudio = audio; audio.playbackRate = audioRate; setPlaying(true); });
+    audio.addEventListener('pause', () => { setPlaying(false); render(); });
+    audio.addEventListener('ended', () => { audio.currentTime = 0; setPlaying(false); render(); });
+    audio.addEventListener('error', () => { setPlaying(false); showToast('Não foi possível tocar este áudio.'); });
+    return audio;
+  }
+  function seekTo(seconds) {
+    const media = ensureAudio();
+    const apply = () => {
+      const total = duration();
+      media.currentTime = Math.max(0, Number.isFinite(total) ? Math.min(seconds, total) : seconds);
+      render();
+    };
+    if (media.readyState >= 1) apply(); else media.addEventListener('loadedmetadata', apply, { once: true });
+  }
+  playButton.addEventListener('click', () => {
+    const media = ensureAudio();
+    if (media.paused) media.play().catch(() => {}); else media.pause();
+  });
+  track.addEventListener('click', (event) => {
+    const box = track.getBoundingClientRect();
+    const fraction = Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1);
+    const apply = () => seekTo(fraction * duration());
+    if (Number.isFinite(duration())) apply(); else ensureAudio().addEventListener('loadedmetadata', apply, { once: true });
+  });
+  track.addEventListener('keydown', (event) => {
+    const steps = { ArrowLeft: -5, ArrowDown: -5, ArrowRight: 5, ArrowUp: 5 };
+    if (event.key in steps) seekTo((audio?.currentTime || 0) + steps[event.key]);
+    else if (event.key === 'Home') seekTo(0);
+    else if (event.key === 'End' && Number.isFinite(duration())) seekTo(duration());
+    else return;
+    event.preventDefault();
+  });
+  // A velocidade escolhida vale para os próximos áudios também, como no WhatsApp.
+  speedButton.addEventListener('click', () => {
+    audioRate = AUDIO_RATES[(AUDIO_RATES.indexOf(audioRate) + 1) % AUDIO_RATES.length];
+    document.querySelectorAll('.audio-speed').forEach((button) => {
+      button.textContent = `${String(audioRate).replace('.', ',')}×`;
+      button.setAttribute('aria-label', `Velocidade de reprodução: ${String(audioRate).replace('.', ',')}x`);
+    });
+    if (playingAudio) playingAudio.playbackRate = audioRate;
+  });
+  speedButton.textContent = `${String(audioRate).replace('.', ',')}×`;
+  render();
+}
+// Visualizador de imagens e vídeos: fundo escurecido, fecha com Esc, X ou clique fora,
+// setas passam pelas mídias da conversa aberta.
+const lightbox = { items: [], index: 0, returnFocus: null };
+function showLightboxItem() {
+  const button = lightbox.items[lightbox.index];
+  if (!button) return;
+  const { kind, src, caption } = button.dataset;
+  $('lightboxStage').innerHTML = kind === 'video'
+    ? `<video src="${src}" controls autoplay playsinline></video>`
+    : `<img src="${src}" alt="Imagem ampliada" />`;
+  $('lightboxCaption').textContent = caption || '';
+  $('lightboxDownload').href = src;
+  const many = lightbox.items.length > 1;
+  $('lightboxPrev').classList.toggle('hidden', !many);
+  $('lightboxNext').classList.toggle('hidden', !many);
+  $('lightboxPrev').disabled = lightbox.index === 0;
+  $('lightboxNext').disabled = lightbox.index === lightbox.items.length - 1;
+}
+function openLightbox(button) {
+  playingAudio?.pause();
+  lightbox.items = [...els.messages.querySelectorAll('.media-open')];
+  lightbox.index = Math.max(0, lightbox.items.indexOf(button));
+  lightbox.returnFocus = button;
+  showLightboxItem();
+  $('lightbox').classList.remove('hidden');
+  $('lightboxClose').focus();
+}
+function closeLightbox() {
+  if ($('lightbox').classList.contains('hidden')) return;
+  $('lightbox').classList.add('hidden');
+  $('lightboxStage').innerHTML = ''; // para o vídeo
+  // Volta o foco para a mídia que estava na tela (pode ser outra, depois de navegar).
+  (lightbox.items[lightbox.index] || lightbox.returnFocus)?.focus();
+}
+function stepLightbox(delta) {
+  const next = lightbox.index + delta;
+  if (next < 0 || next >= lightbox.items.length) return;
+  lightbox.index = next;
+  showLightboxItem();
+}
+els.messages.addEventListener('click', (event) => {
+  const button = event.target.closest('.media-open');
+  if (button) openLightbox(button);
+});
+$('lightboxClose').addEventListener('click', closeLightbox);
+$('lightboxPrev').addEventListener('click', () => stepLightbox(-1));
+$('lightboxNext').addEventListener('click', () => stepLightbox(1));
+$('lightbox').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget || event.target.id === 'lightboxStage') closeLightbox();
+});
+$('lightbox').addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') { event.stopPropagation(); closeLightbox(); return; }
+  if (event.key === 'ArrowLeft' && event.target.tagName !== 'VIDEO') { stepLightbox(-1); event.preventDefault(); return; }
+  if (event.key === 'ArrowRight' && event.target.tagName !== 'VIDEO') { stepLightbox(1); event.preventDefault(); return; }
+  // Mantém o foco do teclado dentro do visualizador.
+  if (event.key !== 'Tab') return;
+  const focusable = [...event.currentTarget.querySelectorAll('a, button:not(:disabled):not(.hidden), video')];
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { last.focus(); event.preventDefault(); }
+  else if (!event.shiftKey && document.activeElement === last) { first.focus(); event.preventDefault(); }
+});
 function queueRowProfilePictures(root) {
   root.querySelectorAll('.message-row .profile-picture-slot').forEach((slot) => queueProfilePicture(slot.dataset.profileId));
 }
-// Recria os separadores de dia a partir das mensagens exibidas (vale para histórico e tempo real).
+const GROUP_WINDOW_SECONDS = 5 * 60;
+// Recria os separadores de dia e o agrupamento a partir das mensagens exibidas (vale para histórico e tempo real).
 function refreshDayDividers() {
   els.messages.querySelectorAll('.day-divider').forEach((divider) => divider.remove());
   let priorDay = '';
+  let prior = null;
   els.messages.querySelectorAll('.message-row').forEach((row) => {
     const timestamp = Number(row.dataset.timestamp);
-    if (!timestamp) return;
-    const day = dayLabel(timestamp);
-    if (day === priorDay) return;
-    const divider = document.createElement('div');
-    divider.className = 'day-divider';
-    divider.textContent = day;
-    row.before(divider);
-    priorDay = day;
+    const day = timestamp ? dayLabel(timestamp) : priorDay;
+    if (day !== priorDay) {
+      const divider = document.createElement('div');
+      divider.className = 'day-divider';
+      divider.innerHTML = `<span>${escapeHtml(day)}</span>`;
+      row.before(divider);
+      priorDay = day;
+      prior = null;
+    }
+    const continued = Boolean(prior) && prior.sender === row.dataset.sender && timestamp - prior.timestamp < GROUP_WINDOW_SECONDS;
+    row.classList.toggle('continued', continued);
+    prior = { sender: row.dataset.sender, timestamp };
   });
 }
 function appendMessage(message) {
@@ -542,15 +764,18 @@ async function openChat(id) {
   clearReplyTarget();
   els.name.textContent = chat.name;
   updateMuteButton();
-  els.meta.textContent = chat.isGroup ? `Grupo · ${chat.number}` : chat.number;
+  els.meta.textContent = chat.isGroup ? 'Grupo' : chat.number;
+  els.input.placeholder = `Mensagem para ${chat.name}`;
   els.avatar.innerHTML = `<span class="avatar-initials">${escapeHtml(initials(chat.name))}</span>`;
   els.avatar.dataset.profileId = chat.id;
-  els.avatar.classList.add('profile-picture-slot');
-  els.avatar.classList.toggle('group', chat.isGroup);
+  els.avatar.className = `avatar avatar-md profile-picture-slot ${toneFor(chat.id)} ${chat.isGroup ? 'group' : ''}`;
   queueProfilePicture(chat.id);
-  els.empty.classList.add('hidden'); els.thread.classList.remove('hidden'); els.conversation.classList.add('thread-open');
+  els.empty.classList.add('hidden'); els.thread.classList.remove('hidden');
+  // No celular a conversa ocupa a tela; o botão voltar do navegador (ou do Android) retorna à lista.
+  if (!els.app.classList.contains('thread-open')) history.pushState({ thread: true }, '');
+  els.app.classList.add('thread-open');
   renderChats();
-  els.messages.innerHTML = '<div class="messages-loading">Carregando mensagens…</div>';
+  els.messages.innerHTML = '<div class="list-note">Carregando mensagens…</div>';
   try {
     const page = await api(`/api/chats/${encodeURIComponent(id)}/messages?limit=${FIRST_PAGE_SIZE}`);
     if (activeChat?.id !== id) return;
@@ -572,20 +797,46 @@ async function openChat(id) {
     els.messages.scrollTop = els.messages.scrollHeight;
     chat.unreadCount = 0; renderChats();
     markChatSeen(id);
-  } catch (error) { if (activeChat?.id === id) els.messages.innerHTML = `<div class="messages-loading">${escapeHtml(error.message)}</div>`; }
-  els.input.focus();
+  } catch (error) { if (activeChat?.id === id) els.messages.innerHTML = `<div class="list-note">${escapeHtml(error.message)}</div>`; }
+  // No celular, focar a caixa abriria o teclado por cima das mensagens.
+  if (!isSinglePane()) els.input.focus();
 }
+function isSinglePane() { return window.matchMedia('(max-width: 760px)').matches; }
+// Volta para a lista (usado no celular). A conversa continua selecionada na barra lateral.
+function showChatList() {
+  els.app.classList.remove('thread-open');
+  els.chatList.querySelector('.chat-row.selected')?.focus();
+}
+$('backBtn').addEventListener('click', () => { if (history.state?.thread) history.back(); else showChatList(); });
+window.addEventListener('popstate', () => { if (els.app.classList.contains('thread-open')) showChatList(); });
 els.messages.addEventListener('scroll', () => { if (els.messages.scrollTop < 80) loadOlderMessages(); });
 els.search.addEventListener('input', renderChats);
 $('refreshBtn').addEventListener('click', loadChats);
-$('themeToggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-$('soundToggle').addEventListener('click', () => {
-  notificationSoundEnabled = !notificationSoundEnabled;
-  updateSoundToggle();
+document.querySelectorAll('.filter').forEach((button) => button.addEventListener('click', () => {
+  chatFilter = button.dataset.filter;
+  document.querySelectorAll('.filter').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+  renderChats();
+}));
+$('themeToggle').addEventListener('change', (event) => setTheme(event.currentTarget.checked ? 'dark' : 'light'));
+$('soundToggle').addEventListener('change', (event) => {
+  notificationSoundEnabled = event.currentTarget.checked;
   try { localStorage.setItem('wppapi-chat-sound', notificationSoundEnabled ? 'on' : 'off'); } catch {}
   if (notificationSoundEnabled) unlockNotificationAudio();
 });
-$('notificationSettingsBtn').addEventListener('click', () => $('notificationSettings').classList.toggle('hidden'));
+function setSettingsOpen(open) {
+  $('settingsMenu').classList.toggle('hidden', !open);
+  $('settingsBtn').setAttribute('aria-expanded', String(open));
+  if (open) updateNotificationSettings();
+}
+$('settingsBtn').addEventListener('click', () => setSettingsOpen($('settingsMenu').classList.contains('hidden')));
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#settingsMenu, #settingsBtn')) setSettingsOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || $('settingsMenu').classList.contains('hidden')) return;
+  setSettingsOpen(false);
+  $('settingsBtn').focus();
+});
 $('inAppNotificationsToggle').addEventListener('change', (event) => {
   inAppNotificationsEnabled = event.currentTarget.checked;
   try { localStorage.setItem('wppapi-chat-inapp', inAppNotificationsEnabled ? 'on' : 'off'); } catch {}
@@ -623,8 +874,7 @@ $('messageNotice').addEventListener('keydown', (event) => {
     if (chatId) openChat(chatId);
   }
 });
-$('messageNotice').tabIndex = 0;
-$('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar esta sessão do WhatsApp?')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
+$('logoutBtn').addEventListener('click', async () => { if (!confirm('Desconectar o WhatsApp deste servidor? Para usar de novo, será preciso ler o QR code.')) return; try { await api('/api/logout', { method: 'POST' }); } catch (error) { showToast(error.message); } });
 $('sessionLogoutBtn').addEventListener('click', async () => {
   try { await api('/api/session/logout', { method: 'POST' }); } catch {}
   location.replace('/login.html');
@@ -635,7 +885,87 @@ $('retryBtn').addEventListener('click', async () => {
   try { await api('/api/restart', { method: 'POST' }); } catch (error) { showToast(error.message); els.retry.classList.remove('hidden'); }
 });
 $('cancelReplyBtn').addEventListener('click', clearReplyTarget);
-$('stickerBtn').addEventListener('click', () => els.stickerInput.click());
+// Painel de figurinhas: as salvas no WhatsApp (favoritas) e a opção de enviar uma imagem como figurinha.
+const stickerPanel = { loaded: false, loading: false, stickers: [], diagnostics: null };
+function stickerImageUrl(id) { return `/api/stickers/saved/${encodeURIComponent(id)}/image`; }
+function setStickerPanelOpen(open) {
+  $('stickerPanel').classList.toggle('hidden', !open);
+  $('stickerBtn').setAttribute('aria-expanded', String(open));
+  if (open) loadSavedStickers();
+}
+async function loadSavedStickers(force = false) {
+  if (stickerPanel.loading || (stickerPanel.loaded && !force)) return;
+  stickerPanel.loading = true;
+  $('stickerGrid').innerHTML = '<div class="sticker-note">Buscando suas figurinhas salvas…</div>';
+  try {
+    const data = await api('/api/stickers/saved');
+    stickerPanel.stickers = data.stickers || [];
+    stickerPanel.diagnostics = data.diagnostics || null;
+  } catch (error) {
+    stickerPanel.stickers = [];
+    stickerPanel.diagnostics = { errors: [error.message] };
+  } finally {
+    stickerPanel.loading = false;
+    stickerPanel.loaded = true;
+  }
+  renderSavedStickers();
+}
+function renderSavedStickers() {
+  const grid = $('stickerGrid');
+  $('stickerDiagBtn').classList.toggle('hidden', stickerPanel.stickers.length > 0);
+  if (!stickerPanel.stickers.length) {
+    grid.innerHTML = '<div class="sticker-note">Não encontramos figurinhas salvas nesta conta. Se você tem favoritas no WhatsApp, copie o diagnóstico para investigar.</div>';
+    return;
+  }
+  grid.innerHTML = stickerPanel.stickers.map((sticker) => `<button class="sticker-option" type="button" data-id="${escapeHtml(sticker.id)}" title="Enviar figurinha" aria-label="Enviar figurinha${sticker.isAnimated ? ' animada' : ''}"><img src="${stickerImageUrl(sticker.id)}" alt="" loading="lazy" /></button>`).join('');
+  // Se as imagens não carregam, o problema é no download: mostra o diagnóstico também.
+  grid.querySelectorAll('img').forEach((img) => img.addEventListener('error', () => {
+    img.closest('.sticker-option').classList.add('broken');
+    $('stickerDiagBtn').classList.remove('hidden');
+  }, { once: true }));
+}
+async function sendSavedSticker(id) {
+  if (!activeChat) return;
+  const chatId = activeChat.id;
+  const quoted = replyTarget;
+  setStickerPanelOpen(false);
+  try {
+    showToast('Enviando figurinha…');
+    const sent = await api(`/api/chats/${encodeURIComponent(chatId)}/stickers/saved/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(quoted?.id ? { quotedMessageId: quoted.id } : {}) });
+    if (quoted) sent.replyPreview = { id: quoted.id, body: messagePreview(quoted), fromMe: quoted.fromMe };
+    if (activeChat?.id === chatId) appendMessage(sent);
+    if (replyTarget === quoted) clearReplyTarget();
+  } catch (error) { showToast(error.message); }
+}
+async function copyStickerDiagnostics() {
+  const report = { diagnostics: stickerPanel.diagnostics, stickers: stickerPanel.stickers.length, browser: navigator.userAgent };
+  const first = stickerPanel.stickers[0];
+  if (first) {
+    try {
+      const response = await fetch(stickerImageUrl(first.id));
+      report.firstImage = response.ok ? `ok (${response.headers.get('content-type')})` : (await response.json().catch(() => ({}))).error || `HTTP ${response.status}`;
+    } catch (error) { report.firstImage = error.message; }
+  }
+  const text = JSON.stringify(report, null, 2);
+  try { await navigator.clipboard.writeText(text); showToast('Diagnóstico copiado.'); }
+  catch { window.prompt('Copie o diagnóstico:', text); }
+}
+$('stickerBtn').addEventListener('click', () => setStickerPanelOpen($('stickerPanel').classList.contains('hidden')));
+$('stickerRefreshBtn').addEventListener('click', () => loadSavedStickers(true));
+$('stickerUploadBtn').addEventListener('click', () => { setStickerPanelOpen(false); els.stickerInput.click(); });
+$('stickerDiagBtn').addEventListener('click', copyStickerDiagnostics);
+$('stickerGrid').addEventListener('click', (event) => {
+  const option = event.target.closest('.sticker-option');
+  if (option && !option.classList.contains('broken')) sendSavedSticker(option.dataset.id);
+});
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#stickerPanel, #stickerBtn')) setStickerPanelOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || $('stickerPanel').classList.contains('hidden')) return;
+  setStickerPanelOpen(false);
+  $('stickerBtn').focus();
+});
 $('mediaBtn').addEventListener('click', () => els.mediaInput.click());
 async function sendFile(file) {
   if (!activeChat) { showToast('Abra uma conversa antes de anexar um arquivo.'); return; }
@@ -661,14 +991,18 @@ async function sendClipboardMedia(file) {
   if (!activeChat) { showToast('Abra uma conversa antes de anexar uma mídia.'); return; }
   if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou a imagem deve ter até 7 MB.'); return; }
   if (!/^image\/(gif|png|jpeg|webp)$/.test(file.type) && file.type !== 'video/mp4') { showToast('Formato não suportado. Escolha um GIF, imagem ou vídeo MP4.'); return; }
+  const chatId = activeChat.id;
+  const quoted = replyTarget;
   try {
     showToast(file.type === 'image/gif' ? 'Enviando GIF…' : 'Enviando mídia…');
     const dataUrl = await readFileAsDataUrl(file);
     const [, data] = dataUrl.split(',');
     const payload = { data, mimetype: file.type, filename: file.name || (file.type === 'image/gif' ? 'animacao.gif' : 'imagem') };
-    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
-    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    appendMessage(sent); clearReplyTarget();
+    if (quoted?.id) payload.quotedMessageId = quoted.id;
+    const sent = await api(`/api/chats/${encodeURIComponent(chatId)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (quoted) sent.replyPreview = { id: quoted.id, body: messagePreview(quoted), fromMe: quoted.fromMe };
+    if (activeChat?.id === chatId) appendMessage(sent);
+    if (replyTarget === quoted) clearReplyTarget();
   } catch (error) { showToast(error.message); }
 }
 els.mediaInput.addEventListener('change', async () => {
@@ -677,9 +1011,13 @@ els.mediaInput.addEventListener('change', async () => {
   await sendFiles(files);
 });
 els.composer.addEventListener('dragover', (event) => {
-  if ([...(event.dataTransfer?.items || [])].some((item) => item.kind === 'file')) event.preventDefault();
+  if (![...(event.dataTransfer?.items || [])].some((item) => item.kind === 'file')) return;
+  event.preventDefault();
+  els.composer.classList.add('dragging');
 });
+els.composer.addEventListener('dragleave', (event) => { if (!els.composer.contains(event.relatedTarget)) els.composer.classList.remove('dragging'); });
 els.composer.addEventListener('drop', async (event) => {
+  els.composer.classList.remove('dragging');
   const files = [...(event.dataTransfer?.files || [])];
   if (!files.length) return;
   event.preventDefault();
@@ -710,22 +1048,11 @@ els.input.addEventListener('paste', async (event) => {
   const file = mediaItem?.getAsFile() || [...(event.clipboardData?.files || [])].find((item) => /^image\/(gif|png|jpeg|webp)$/.test(item.type));
   const otherFiles = file ? [] : [...(event.clipboardData?.files || [])];
   if (!file && otherFiles.length) { event.preventDefault(); await sendFiles(otherFiles); return; }
-  if (!file) return; // Texto, incluindo emojis do Win + ., continua sendo inserido normalmente.
+  if (!file) return; // Texto, incluindo emojis, continua sendo inserido normalmente.
   event.preventDefault();
-  if (!activeChat) { showToast('Abra uma conversa antes de colar uma mídia.'); return; }
-  if (file.size > 7 * 1024 * 1024) { showToast('O GIF ou imagem deve ter até 7 MB.'); return; }
-  try {
-    showToast(file.type === 'image/gif' ? 'Enviando GIF…' : 'Enviando imagem…');
-    const dataUrl = await readFileAsDataUrl(file);
-    const [, data] = dataUrl.split(',');
-    const payload = { data, mimetype: file.type, filename: file.name || (file.type === 'image/gif' ? 'animacao.gif' : 'imagem') };
-    if (replyTarget?.id) payload.quotedMessageId = replyTarget.id;
-    const sent = await api(`/api/chats/${encodeURIComponent(activeChat.id)}/media`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    appendMessage(sent);
-    clearReplyTarget();
-  } catch (error) { showToast(error.message); }
+  await sendClipboardMedia(file);
 });
-els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = `${Math.min(els.input.scrollHeight, 100)}px`; });
+els.input.addEventListener('input', () => { els.input.style.height = 'auto'; els.input.style.height = `${Math.min(els.input.scrollHeight, 160)}px`; });
 els.composer.addEventListener('submit', async (event) => {
   event.preventDefault();
   const body = els.input.value.trim();

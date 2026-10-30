@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createCache } = require('../lib/cache');
 const { profilePictureExpiry, parseByteRange, mediaResponseHeaders, isPlayableUpload } = require('../lib/media');
-const { serializeMessage, fetchMessagesPage, createMessageSerializer } = require('../lib/messages');
+const { serializeMessage, fetchMessagesPage, createMessageSerializer, normalizeWaveform } = require('../lib/messages');
 const { createLoginLimiter, createOriginCheck, isSameOrigin, codespacesOrigin, LOGIN_MAX_FAILURES_PER_IP, LOGIN_MAX_FAILURES_GLOBAL } = require('../lib/auth');
 const { makeHistory } = require('./helpers/fake-whatsapp');
 
@@ -72,6 +72,23 @@ test('serializeMessage traz confirmação, nome do arquivo e citação', () => {
   assert.equal(message.filename, 'a.pdf');
   assert.deepEqual(message.quotedMessage, { id: 'q1', body: 'antes', type: 'chat', fromMe: false, hasMedia: false });
   assert.equal(serializeMessage({ id: { _serialized: 'm2' } }).ack, null);
+});
+
+test('áudio e vídeo trazem duração, forma de onda e miniatura', () => {
+  const voice = serializeMessage({ id: { _serialized: 'v1' }, type: 'ptt', hasMedia: true, duration: '7', _data: { waveform: { ...Array(64).fill(30) } } });
+  assert.equal(voice.duration, 7);
+  assert.equal(voice.waveform.length, 48);
+  assert.ok(voice.waveform.every((value) => value === 100));
+  assert.deepEqual(normalizeWaveform(new Uint8Array([0, 10, 20, 40, 0, 10, 20, 40])).slice(0, 12), [0, 0, 0, 0, 0, 0, 25, 25, 25, 25, 25, 25]);
+  assert.equal(normalizeWaveform([0, 0, 0, 0, 0, 0, 0, 0]), null);
+  assert.equal(normalizeWaveform('x'), null);
+  const video = serializeMessage({ id: { _serialized: 'v2' }, type: 'video', hasMedia: true, _data: { body: '/9j/4AAQSkZJRg==' } });
+  assert.equal(video.thumbnail, 'data:image/jpeg;base64,/9j/4AAQSkZJRg==');
+  assert.equal(serializeMessage({ id: { _serialized: 'v3' }, type: 'video', hasMedia: true, _data: { body: 'legenda qualquer' } }).thumbnail, null);
+  assert.equal(serializeMessage({ id: { _serialized: 'v4' }, type: 'video', hasMedia: true, _data: { body: '/9j/"><script>' } }).thumbnail, null);
+  const plain = serializeMessage({ id: { _serialized: 'a1' }, type: 'audio', hasMedia: true });
+  assert.equal(plain.duration, null);
+  assert.equal(plain.waveform, null);
 });
 
 test('paginação de mensagens anteriores', async () => {

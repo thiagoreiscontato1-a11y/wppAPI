@@ -2,7 +2,6 @@ const form = document.getElementById('loginForm');
 const errorBox = document.getElementById('loginError');
 const submit = document.getElementById('loginSubmit');
 
-try { if (localStorage.getItem('wppapi-chat-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch {}
 // Já autenticado (ou sem senha configurada): vai direto para o chat.
 fetch('/api/status').then((response) => { if (response.ok) location.replace('/'); }).catch(() => {});
 
